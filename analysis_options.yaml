@@ -1,0 +1,15 @@
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - third_party/video_player_android/example/**
+    - third_party/video_player_android/pigeons/**
+    - third_party/video_player_android/test/**
+    - web/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_final_locals: true
+    avoid_print: true

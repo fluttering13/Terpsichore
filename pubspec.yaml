@@ -1,0 +1,44 @@
+name: terpsichore
+description: A dancer-first video learning and comparison workspace.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: ^0.12.1
+  file_picker: ^12.3.0
+  ffmpeg_kit_flutter_new_min: ^3.6.2
+  flutter_onnxruntime: ^1.8.5
+  just_audio: ^0.10.6
+  path_provider: ^2.1.6
+  saver_gallery: ^5.1.0
+  share_plus: ^13.3.0
+  video_player: ^2.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+dependency_overrides:
+  # Local Android patch enables Media3's native rapid-seek scrubbing mode.
+  video_player_android:
+    path: third_party/video_player_android
+
+flutter:
+  uses-material-design: true
+  assets:
+    - asset/logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: asset/icon.png
+  adaptive_icon_background: "#0B2038"
+  adaptive_icon_foreground: asset/icon.png
+  remove_alpha_ios: true
