@@ -21,6 +21,7 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
         // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
@@ -54,24 +55,14 @@ flutter {
     source = "../.."
 }
 
-// A dynamic icon disables the manifest launcher while the app is idle. Before
-// a debug build, ask the currently installed debug app to re-enable that stable
-// component so `flutter run` can launch it without creating extra aliases.
-val enableDebugLauncher by tasks.registering(Exec::class) {
-    isIgnoreExitValue = true
-    onlyIf { System.getenv("CI") != "true" }
-    commandLine(
-        "${android.sdkDirectory}/platform-tools/adb",
-        "shell",
-        "am",
-        "broadcast",
-        "-n",
-        "com.example.terpsichore/.DebugLauncherReceiver",
-        "-a",
-        "com.example.terpsichore.ENABLE_DEBUG_LAUNCHER",
-    )
-}
+// Building must never mutate an installed app's launcher state. When a dynamic
+// alias is active, launch MainActivity explicitly instead of resetting icons.
 
-tasks.matching { it.name == "preDebugBuild" }.configureEach {
-    dependsOn(enableDebugLauncher)
+dependencies {
+    // Android pose uses Accurate; ONNX remains required by music stem separation.
+    implementation("com.google.mlkit:pose-detection-accurate:18.0.0-beta5")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.0")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("junit:junit:4.13.2")
 }

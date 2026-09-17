@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/learning_mode_screen.dart';
 import 'screens/music_practice_screen.dart';
 import 'screens/video_conversion_screen.dart';
+import 'widgets/permission_reminder.dart';
 
 final class TerpsichoreApp extends StatelessWidget {
   const TerpsichoreApp({super.key});
@@ -32,7 +33,7 @@ final class TerpsichoreApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const _HomeShell(),
+      home: const PermissionReminder(child: _HomeShell()),
     ),
   );
 }

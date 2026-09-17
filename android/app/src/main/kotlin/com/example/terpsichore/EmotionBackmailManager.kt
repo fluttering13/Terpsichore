@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -38,6 +37,7 @@ object EmotionBackmailManager {
     private const val KEY_REMINDER_HOUR = "reminder_hour"
     private const val KEY_REMINDER_MINUTE = "reminder_minute"
     private const val KEY_LANGUAGE = "language"
+    private const val KEY_LAST_REMINDER_DAY = "last_reminder_day"
 
     private const val CHANNEL_ID = "emotion_backmail"
     private const val NOTIFICATION_ID = 7319
@@ -175,11 +175,10 @@ object EmotionBackmailManager {
         "FlutterDebugLauncher1789586600846",
     )
 
-    fun onAppOpened(context: Context): Map<String, Any> {
+    fun onAppOpened(context: Context, now: Long = System.currentTimeMillis()): Map<String, Any> {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val today = LocalDate.now().toEpochDay()
+        val today = java.time.Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
         val lastOpenDay = prefs.getLong(KEY_LAST_OPEN_DAY, Long.MIN_VALUE)
         val lastOpenMillis = prefs.getLong(KEY_LAST_OPEN_MILLIS, 0L)
         val firstOpenToday = lastOpenDay != today
@@ -224,12 +223,12 @@ object EmotionBackmailManager {
             .putString(KEY_CURRENT_MESSAGE, currentMessage)
             .putString(
                 KEY_PENDING_ALIAS,
-                if (isDebuggable(appContext)) launcherAlias(appContext) else onlineMessage.icon,
+                onlineMessage.icon,
             )
             .apply()
 
         if (notificationsEnabled(prefs)) {
-            scheduleNextInactivityCheck(appContext, reminderAt(prefs, today + 1L))
+            restoreSchedule(appContext)
         } else {
             cancelInactivityCheck(appContext)
         }
@@ -267,11 +266,7 @@ object EmotionBackmailManager {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val defaultAlias = launcherAlias(appContext)
         val savedAlias = prefs.getString(KEY_CURRENT_ALIAS, defaultAlias)
-        val desiredAlias = if (isDebuggable(appContext)) {
-            defaultAlias
-        } else {
-            savedAlias?.takeIf { it == defaultAlias || it in emotionAliases } ?: defaultAlias
-        }
+        val desiredAlias = savedAlias?.takeIf { it == defaultAlias || it in emotionAliases } ?: defaultAlias
         normalizeLauncherAliases(appContext, desiredAlias)
     }
 
@@ -288,8 +283,9 @@ object EmotionBackmailManager {
 
         val today = LocalDate.now().toEpochDay()
         val offlineDays = (today - lastOpenDay).toInt()
-        if (offlineDays < 1) {
-            scheduleNextInactivityCheck(appContext, reminderAt(prefs, lastOpenDay + 1L))
+        if (prefs.getLong(KEY_LAST_REMINDER_DAY, Long.MIN_VALUE) == today ||
+            System.currentTimeMillis() < reminderAt(prefs, today)) {
+            restoreSchedule(appContext)
             return
         }
 
@@ -298,17 +294,19 @@ object EmotionBackmailManager {
         } else {
             offlineMessages
         }
-        val message = messages[(offlineDays - 1).coerceAtMost(messages.lastIndex)]
-        prefs.edit().putInt(KEY_OFFLINE_DAYS, offlineDays).apply()
-        if (!isDebuggable(appContext)) {
-            if (hostActivityActive) {
-                prefs.edit().putString(KEY_PENDING_ALIAS, message.icon).apply()
-            } else {
-                normalizeLauncherAliases(appContext, message.icon)
-            }
+        val message = if (offlineDays < 1) {
+            onlineMessageFor(prefs.getInt(KEY_ONLINE_STREAK, 1).coerceAtLeast(1), today,
+                prefs.getString(KEY_LANGUAGE, "zh-TW") == "en")
+        } else messages[(offlineDays - 1).coerceAtMost(messages.lastIndex)]
+        prefs.edit().putInt(KEY_OFFLINE_DAYS, offlineDays.coerceAtLeast(0))
+            .putLong(KEY_LAST_REMINDER_DAY, today).apply()
+        if (hostActivityActive) {
+            prefs.edit().putString(KEY_PENDING_ALIAS, message.icon).apply()
+        } else {
+            normalizeLauncherAliases(appContext, message.icon)
         }
         postOrQueue(appContext, message)
-        scheduleNextInactivityCheck(appContext, reminderAt(prefs, today + 1L))
+        restoreSchedule(appContext)
     }
 
     fun restoreSchedule(context: Context) {
@@ -320,12 +318,9 @@ object EmotionBackmailManager {
         val lastOpenMillis = prefs.getLong(KEY_LAST_OPEN_MILLIS, 0L)
         val lastOpenDay = prefs.getLong(KEY_LAST_OPEN_DAY, Long.MIN_VALUE)
         if (lastOpenMillis == 0L || lastOpenDay == Long.MIN_VALUE) return
-        val firstReminder = reminderAt(prefs, lastOpenDay + 1L)
-        val next = if (firstReminder > System.currentTimeMillis()) {
-            firstReminder
-        } else {
-            System.currentTimeMillis() + 30_000L
-        }
+        val next = DailyReminderSchedule.next(System.currentTimeMillis(),
+            prefs.getInt(KEY_REMINDER_HOUR, DEFAULT_REMINDER_HOUR),
+            prefs.getInt(KEY_REMINDER_MINUTE, DEFAULT_REMINDER_MINUTE), ZoneId.systemDefault())
         scheduleNextInactivityCheck(context, next)
     }
 
@@ -334,6 +329,10 @@ object EmotionBackmailManager {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         return mapOf(
             "enabled" to notificationsEnabled(prefs),
+            "notificationsAllowed" to (context.getSystemService(NotificationManager::class.java).areNotificationsEnabled() &&
+                (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)),
+            "channelAllowed" to (Build.VERSION.SDK_INT < 26 ||
+                context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE),
             "hour" to prefs.getInt(KEY_REMINDER_HOUR, DEFAULT_REMINDER_HOUR),
             "minute" to prefs.getInt(KEY_REMINDER_MINUTE, DEFAULT_REMINDER_MINUTE),
             "language" to prefs.getString(KEY_LANGUAGE, "zh-TW").orEmpty(),
@@ -429,7 +428,7 @@ object EmotionBackmailManager {
             .apply()
     }
 
-    private fun postNotification(context: Context, message: EmotionMessage): Boolean {
+    private fun postNotification(context: Context, message: EmotionMessage, notificationId: Int = NOTIFICATION_ID): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -437,6 +436,7 @@ object EmotionBackmailManager {
         }
 
         val manager = context.getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !manager.areNotificationsEnabled()) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
                 NotificationChannel(
@@ -444,17 +444,22 @@ object EmotionBackmailManager {
                     "Terpsichore 女神訊息",
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
+                    // Initial default only: Android preserves existing user settings.
+                    enableVibration(true)
                     description = "連續練習、久未上線與回歸提醒"
                 },
             )
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) return false
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val contentIntent = PendingIntent.getActivity(
             context,
-            NOTIFICATION_ID,
+            notificationId,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -473,7 +478,11 @@ object EmotionBackmailManager {
             .setAutoCancel(true)
             .build()
 
-        manager.notify(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            @Suppress("DEPRECATION")
+            notification.defaults = notification.defaults or android.app.Notification.DEFAULT_VIBRATE
+        }
+        manager.notify(notificationId, notification)
         return true
     }
 
@@ -545,6 +554,7 @@ object EmotionBackmailManager {
             .toInstant()
             .toEpochMilli()
 
+    @Synchronized
     private fun normalizeLauncherAliases(context: Context, requestedAlias: String) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val packageManager = context.packageManager
@@ -603,8 +613,29 @@ object EmotionBackmailManager {
         prefs.edit().putString(KEY_CURRENT_ALIAS, desiredAlias).apply()
     }
 
-    private fun isDebuggable(context: Context): Boolean =
-        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    fun scheduleTestNotification(context: Context) {
+        val alarm = context.getSystemService(AlarmManager::class.java)
+        val intent = Intent(context, EmotionAlarmReceiver::class.java).putExtra("test_notification", true)
+        val pending = PendingIntent.getBroadcast(context, 7321, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val at = System.currentTimeMillis() + 10_000L
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()) {
+            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+        } else {
+            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+        }
+    }
+
+    fun deliverTestNotification(context: Context) {
+        val posted = postNotification(context, EmotionMessage("HappyIcon", "Terpsichore 測試通知", "通知與背景鬧鐘測試完成。每日提醒時間未變更。"), 7322)
+        android.util.Log.i("TerpsichoreReminder", "testNotification posted=$posted")
+    }
+
+    fun testLauncherIcon(context: Context, alias: String) {
+        if (hostActivityActive) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_PENDING_ALIAS, alias).apply()
+        } else normalizeLauncherAliases(context, alias)
+    }
 
     private fun launcherAlias(context: Context): String =
         context.packageManager

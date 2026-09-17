@@ -92,6 +92,16 @@ final class EmotionBackmailService {
     }
   }
 
+  static Future<void> testNotification() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    await _channel.invokeMethod<void>('testNotification');
+  }
+
+  static Future<void> openNotificationSettings() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    await _channel.invokeMethod<void>('openNotificationSettings');
+  }
+
   static void _applySettings(Map<String, Object?>? data) {
     if (data == null) return;
     notificationSettings.value = NotificationSettings(
@@ -99,6 +109,8 @@ final class EmotionBackmailService {
       hour: (data['hour'] as num?)?.toInt() ?? 18,
       minute: (data['minute'] as num?)?.toInt() ?? 0,
       exactAlarmAllowed: data['exactAlarmAllowed'] as bool? ?? true,
+      notificationsAllowed: data['notificationsAllowed'] as bool? ?? true,
+      channelAllowed: data['channelAllowed'] as bool? ?? true,
     );
     language.value = AppLanguage.fromCode(data['language'] as String?);
     final message = data['message'] as String?;
@@ -125,10 +137,17 @@ final class NotificationSettings {
     this.hour = 18,
     this.minute = 0,
     this.exactAlarmAllowed = true,
+    this.notificationsAllowed = true,
+    this.channelAllowed = true,
   });
 
   final bool enabled;
   final int hour;
   final int minute;
   final bool exactAlarmAllowed;
+  final bool notificationsAllowed;
+  final bool channelAllowed;
+  bool get needsPermission =>
+      enabled &&
+      (!notificationsAllowed || !channelAllowed || !exactAlarmAllowed);
 }

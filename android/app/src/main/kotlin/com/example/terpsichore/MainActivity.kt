@@ -25,11 +25,13 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (!flutterEngine.plugins.has(AccuratePosePlugin::class.java)) {
+            flutterEngine.plugins.add(AccuratePosePlugin())
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "recordOpen" -> {
-                        requestNotificationPermissionIfNeeded()
                         val status = EmotionBackmailManager.onAppOpened(this)
                         EmotionBackmailManager.postPendingNotification(this)
                         result.success(status)
@@ -37,12 +39,27 @@ class MainActivity : FlutterActivity() {
                     "getNotificationSettings" -> {
                         result.success(EmotionBackmailManager.notificationSettings(this))
                     }
+                    "openNotificationSettings" -> {
+                        val status = EmotionBackmailManager.notificationSettings(this)
+                        val intent = if (Build.VERSION.SDK_INT >= 26) {
+                            Intent(if (status["notificationsAllowed"] == true && status["channelAllowed"] == false)
+                                Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS else Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                                .putExtra(Settings.EXTRA_CHANNEL_ID, "emotion_backmail")
+                        } else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                        if (openSettingsSafely(intent)) result.success(null)
+                        else result.error("SETTINGS_UNAVAILABLE", "Cannot open system settings", null)
+                    }
+                    "testNotification" -> {
+                        requestNotificationPermissionIfNeeded()
+                        EmotionBackmailManager.scheduleTestNotification(this)
+                        result.success(null)
+                    }
                     "updateNotificationSettings" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: true
                         val hour = call.argument<Int>("hour") ?: 18
                         val minute = call.argument<Int>("minute") ?: 0
                         val language = call.argument<String>("language") ?: "zh-TW"
-                        requestNotificationPermissionIfNeeded()
                         result.success(
                             EmotionBackmailManager.updateNotificationSettings(
                                 this,
@@ -54,12 +71,18 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                     "requestExactAlarmPermission" -> {
-                        requestExactAlarmPermissionIfNeeded()
-                        result.success(null)
+                        if (requestExactAlarmPermissionIfNeeded()) result.success(null)
+                        else result.error("SETTINGS_UNAVAILABLE", "Cannot open system settings", null)
                     }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // Drain our native runs before other plugins may tear down shared ORT.
+        flutterEngine.plugins.remove(AccuratePosePlugin::class.java)
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onRequestPermissionsResult(
@@ -95,11 +118,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun requestExactAlarmPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+    override fun onResume() {
+        super.onResume()
+        EmotionBackmailManager.restoreSchedule(this)
+        EmotionBackmailManager.postPendingNotification(this)
+    }
+
+    private fun openSettingsSafely(intent: Intent): Boolean {
+        return try {
+            startActivity(intent)
+            true
+        } catch (_: RuntimeException) {
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                true
+            } catch (_: RuntimeException) { false }
+        }
+    }
+
+    private fun requestExactAlarmPermissionIfNeeded(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         val alarmManager = getSystemService(AlarmManager::class.java)
-        if (alarmManager.canScheduleExactAlarms()) return
-        startActivity(
+        if (alarmManager.canScheduleExactAlarms()) return true
+        return openSettingsSafely(
             Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
                 data = Uri.parse("package:$packageName")
             },

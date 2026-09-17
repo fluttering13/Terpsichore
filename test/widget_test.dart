@@ -24,6 +24,75 @@ void main() {
 
     expect(find.text('A・參考影片'), findsOneWidget);
     expect(find.text('B・我的影片'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'AI 對齊（固定 A）'))
+          .onPressed,
+      isNull,
+    );
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('AI 對齊設定'));
+    await tester.pumpAndSettle();
+    expect(find.text('B 起點搜尋範圍：±10%'), findsOneWidget);
+    expect(find.text('骨架平滑窗口（秒）'), findsOneWidget);
+    final multiPerson = find.byKey(
+      const ValueKey('pose-multi-person-filtering'),
+    );
+    expect(multiPerson, findsNothing);
+    expect(find.textContaining('自動追蹤主要人物'), findsOneWidget);
+    expect(find.text('自動（6–12 FPS）'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pose-sampling-fps')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('6 FPS').last);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<DropdownButtonFormField<int>>(
+            find.byKey(const ValueKey('pose-sampling-fps')),
+          )
+          .initialValue,
+      6,
+    );
+    final windowField = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextFormField),
+    );
+    await tester.enterText(windowField, 'NaN');
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '儲存'))
+          .onPressed,
+      isNull,
+    );
+    await tester.enterText(windowField, '0.35');
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '儲存'))
+          .onPressed,
+      isNotNull,
+    );
+    tester
+        .widget<Slider>(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Slider),
+          ),
+        )
+        .onChanged!(0);
+    await tester.pump();
+    expect(find.text('B 起點搜尋範圍：±0%'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('AI 對齊設定'));
+    await tester.pumpAndSettle();
+    expect(multiPerson, findsNothing);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.keyboard_arrow_up));
     await tester.pumpAndSettle();

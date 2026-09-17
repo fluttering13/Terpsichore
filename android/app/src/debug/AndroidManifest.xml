@@ -1,7 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Flutter starts this stable activity explicitly. Requiring URI data
+             excludes it from normal launcher queries, which have no data. -->
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <data android:scheme="terpsichore-debug" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".DebugLauncherReceiver"
+            android:permission="android.permission.DUMP"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

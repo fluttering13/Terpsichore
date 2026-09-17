@@ -12,3 +12,5 @@ android/local.properties
 ios/Pods/
 ios/.symlinks/
 *.iml
+__pycache__/
+*.pyc

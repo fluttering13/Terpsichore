@@ -1,0 +1,18 @@
+Experimental on-device pose pipeline
+
+RTMPose-S: OpenMMLab MMPose / RTMPose
+https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose
+ONNX mirror: https://huggingface.co/bukuroo/RTMPose-ONNX
+Revision: a6e9fb8a9190efd0383b059033f45645180cc7df
+SHA256: 8069eb32a037dd57abc1cfc078521dde49797c955232d40dae54b677182c2f7f
+
+Person detector: Ultralytics YOLO11s-Pose
+https://github.com/ultralytics/ultralytics
+ONNX mirror: https://huggingface.co/AXERA-TECH/YOLO11-Pose
+Revision: 156938308275ed3dbe3772898d8766a399aeb173
+SHA256: c53f26bdad7b89da6e673dc3b59fa2062c21b78ceff65c14d55639d691578208
+
+Sources and provenance only: this is not a license grant.
+Distribution license review is pending; do not infer upstream model licensing
+from a third-party mirror's license tag. Research comparison documented in
+docs/pose-model-comparison.md and docs/rtmpose-alignment.md.

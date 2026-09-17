@@ -18,7 +18,7 @@ jobs:
   validate:
     name: Analyze, test, and build Android
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -53,6 +53,10 @@ jobs:
       - name: Build Android debug APK
         run: flutter build apk --debug --no-pub
 
+      - name: Test Android reminder scheduling
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
       - name: Upload Android debug APK
         uses: actions/upload-artifact@v7
         with:
@@ -60,3 +64,25 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+
+      - name: Launcher reinstall, update, and streak regression
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          script: |
+            (cd android && ./gradlew :app:connectedDebugAndroidTest --console=plain)
+            adb shell am broadcast -n com.example.terpsichore/.DebugLauncherReceiver -a com.example.terpsichore.TEST_ICON --es alias HappyIcon
+            pwsh -File tools/test-launcher-upgrade.ps1 -Serial emulator-5554
+
+      - name: Upload launcher test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launcher-tests-${{ github.sha }}
+          path: build/app/reports/androidTests/
+          if-no-files-found: warn

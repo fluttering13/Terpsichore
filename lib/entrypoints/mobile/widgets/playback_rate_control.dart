@@ -8,29 +8,35 @@ final class PlaybackRateControl extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.showSlider = true,
+    this.maximum = PlaybackRate.maximum,
     super.key,
   });
 
   final PlaybackRate value;
   final ValueChanged<PlaybackRate> onChanged;
   final bool showSlider;
+  final double maximum;
 
   Future<void> _enterRate(BuildContext context) async {
     final text = await showDialog<String>(
       context: context,
-      builder: (_) => _PlaybackRateDialog(initialValue: value.value),
+      builder: (_) =>
+          _PlaybackRateDialog(initialValue: value.value, maximum: maximum),
     );
     if (text == null || !context.mounted) return;
     final number = double.tryParse(text.replaceAll(',', '.'));
     if (number == null ||
         number < PlaybackRate.minimum ||
-        number > PlaybackRate.maximum) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('播放速度必須介於 0.10x 和 2.00x')));
+        !number.isFinite ||
+        number > maximum) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('播放速度必須介於 0.10x 和 ${maximum.toStringAsFixed(2)}x'),
+        ),
+      );
       return;
     }
-    onChanged(PlaybackRate(number));
+    onChanged(PlaybackRate(number, upperBound: maximum));
   }
 
   @override
@@ -52,9 +58,10 @@ final class PlaybackRateControl extends StatelessWidget {
           child: Slider(
             value: value.value,
             min: PlaybackRate.minimum,
-            max: PlaybackRate.maximum,
-            divisions: 38,
-            onChanged: (next) => onChanged(PlaybackRate(next)),
+            max: maximum,
+            divisions: ((maximum - PlaybackRate.minimum) / .05).round(),
+            onChanged: (next) =>
+                onChanged(PlaybackRate(next, upperBound: maximum)),
           ),
         ),
     ],
@@ -62,9 +69,13 @@ final class PlaybackRateControl extends StatelessWidget {
 }
 
 final class _PlaybackRateDialog extends StatefulWidget {
-  const _PlaybackRateDialog({required this.initialValue});
+  const _PlaybackRateDialog({
+    required this.initialValue,
+    required this.maximum,
+  });
 
   final double initialValue;
+  final double maximum;
 
   @override
   State<_PlaybackRateDialog> createState() => _PlaybackRateDialogState();
@@ -99,9 +110,9 @@ final class _PlaybackRateDialogState extends State<_PlaybackRateDialog> {
       autofocus: true,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         suffixText: 'x',
-        helperText: '可輸入 0.10 到 2.00',
+        helperText: '可輸入 0.10 到 ${widget.maximum.toStringAsFixed(2)}',
       ),
       onSubmitted: (_) => _submit(),
     ),

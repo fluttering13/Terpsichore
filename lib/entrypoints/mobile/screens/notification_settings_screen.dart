@@ -89,8 +89,8 @@ final class _NotificationSettingsScreenState
           subtitle: Text(
             _enabled
                 ? (_english
-                      ? 'Remind me when I have not opened the app'
-                      : '未開啟 App 時提醒我回來練習')
+                      ? 'Notify me every day, even if I opened the app'
+                      : '每天固定時間通知，當天開過 App 也會收到')
                 : (_english ? 'Notifications are off' : '通知已關閉'),
           ),
           value: _enabled,
@@ -121,6 +121,31 @@ final class _NotificationSettingsScreenState
           label: Text(_english ? 'Save settings' : '儲存設定'),
         ),
         const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () async {
+            try {
+              await EmotionBackmailService.testNotification();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    _english
+                        ? 'Test scheduled in about 10 seconds; check notification permissions if nothing arrives.'
+                        : '約 10 秒後發送測試通知；若沒收到，請確認系統通知權限。',
+                  ),
+                ),
+              );
+            } catch (error) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('測試排程失敗：$error')));
+              }
+            }
+          },
+          icon: const Icon(Icons.notifications_active_outlined),
+          label: Text(_english ? 'Test notification' : '發送測試通知'),
+        ),
         Text(
           _english
               ? 'The default time is 18:00. Turning notifications off also cancels scheduled reminders.'

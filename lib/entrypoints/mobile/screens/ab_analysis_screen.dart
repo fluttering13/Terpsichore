@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:share_plus/share_plus.dart';
@@ -10,6 +14,9 @@ import 'package:video_player/video_player.dart';
 import '../../../core/ab_analysis/analysis_exporter.dart';
 import '../../../core/ab_analysis/analysis_gallery.dart';
 import '../../../core/ab_analysis/analysis_project.dart';
+import '../../../core/ab_analysis/pose_alignment.dart';
+import '../../../core/ab_analysis/parallel_pose_jobs.dart';
+import '../../../core/ab_analysis/pose_post_processing.dart';
 import '../../../core/saved_projects/saved_project.dart';
 import '../../../core/shared_video_playback/playback_rate.dart';
 import '../../../core/shared_video_playback/time_range.dart';
@@ -17,6 +24,7 @@ import '../../../core/shared_video_playback/video_source.dart';
 import '../../../infrastructure/analysis/ffmpeg_analysis_exporter.dart';
 import '../../../infrastructure/analysis/device_analysis_gallery.dart';
 import '../../../infrastructure/analysis/local_analysis_audio_picker.dart';
+import '../../../infrastructure/analysis/movenet_analyzer.dart';
 import '../../../infrastructure/media/local_video_picker.dart';
 import '../../../infrastructure/saved_projects/local_saved_project_store.dart';
 import '../../../infrastructure/saved_projects/project_media_store.dart';
@@ -26,6 +34,7 @@ import '../widgets/playback_rate_control.dart';
 import '../widgets/precision_scrub_slider.dart';
 import '../widgets/saved_project_controls.dart';
 import '../widgets/time_text.dart';
+import '../widgets/pose_overlay.dart';
 
 final class AbAnalysisScreen extends StatefulWidget {
   const AbAnalysisScreen({super.key});
@@ -50,6 +59,12 @@ final class _TrackState {
   final LatestVideoSeeker seeker;
   TimeRange trim;
   PlaybackRate rate;
+  PoseSequence? pose;
+  PoseSequence? processedPose;
+  bool useProcessedPose = true;
+  double? poseStart;
+  double? poseEnd;
+  bool showPose = false;
 
   AnalysisTrack toDomain() => AnalysisTrack(
     source: source,
@@ -86,6 +101,461 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   AnalysisGalleryFolder _exportFolder = AnalysisGalleryFolder.defaultFolder;
   String? _savedProjectId;
   String? _savedProjectName;
+  MoveNetAnalyzer? _poseAnalyzer;
+  final List<MoveNetAnalyzer> _activePoseAnalyzers = [];
+  void _cancelPoseAnalysis() {
+    for (final analyzer in _activePoseAnalyzers) {
+      analyzer.cancelled = true;
+    }
+  }
+
+  double _searchFraction = .1;
+  double _smoothWindow = .5;
+  bool _smoothEnabled = true;
+  int _samplingFps = 0; // 0 preserves adaptive 6–12 FPS.
+  static const _fpsOptions = [0, 6, 8, 12, 15, 24, 30];
+  bool _settingsReady = false;
+  TimeRange? _beforeAiTrim;
+  PlaybackRate? _beforeAiRate;
+  _TrackState? _beforeAiTrack;
+  String? _alignmentLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAiSettings());
+  }
+
+  Future<File> _aiSettingsFile() async => File(
+    '${(await getApplicationSupportDirectory()).path}/pose_settings.json',
+  );
+
+  Future<void> _loadAiSettings() async {
+    var fraction = .1;
+    try {
+      final file = await _aiSettingsFile();
+      if (await file.exists()) {
+        final data = jsonDecode(await file.readAsString()) as Map;
+        final value = data['searchFraction'];
+        final window = data['smoothWindow'];
+        final fps = data['samplingFps'];
+        // Ignore the retired multiPersonFiltering preference: tracking is always on.
+        if (fps is int && _fpsOptions.contains(fps)) _samplingFps = fps;
+        if (window is num && window.isFinite) {
+          _smoothWindow = window.toDouble().clamp(0, 1);
+        }
+        _smoothEnabled = data['smoothEnabled'] is bool
+            ? data['smoothEnabled'] as bool
+            : true;
+        if (value is num && value.isFinite) {
+          fraction = value.toDouble().clamp(0.0, .5);
+        }
+      }
+    } catch (_) {
+      /* Invalid preferences fall back to the documented default. */
+    }
+    if (mounted) {
+      setState(() {
+        _searchFraction = fraction;
+        _settingsReady = true;
+      });
+    }
+  }
+
+  Future<void> _showAiSettings() async {
+    var percent = (_searchFraction * 100).roundToDouble();
+    double? window = _smoothWindow;
+    var enabled = _smoothEnabled;
+    var fps = _samplingFps;
+    final value = await showDialog<(double, double, bool, int)>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('AI 對齊設定'),
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('自動追蹤主要人物，每個採樣影格只推論一次。遮擋或多人交錯時仍可能追錯，請用骨架預覽確認。'),
+              DropdownButtonFormField<int>(
+                key: const ValueKey('pose-sampling-fps'),
+                initialValue: fps,
+                decoration: const InputDecoration(labelText: '骨架採樣 FPS'),
+                items: _fpsOptions
+                    .map(
+                      (n) => DropdownMenuItem(
+                        value: n,
+                        child: Text(n == 0 ? '自動（6–12 FPS）' : '$n FPS'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (n) {
+                  if (n != null) update(() => fps = n);
+                },
+              ),
+              const Text(
+                '固定 FPS 越低分析越快，但可能漏掉快速動作。只影響 AI 採樣，不改變影片播放或輸出 FPS。修改後需重新分析。',
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('平滑骨架預覽'),
+                subtitle: const Text('Median 平滑用於骨架與 AI 對齊；關閉後重新分析可比較原始結果。'),
+                value: enabled,
+                onChanged: (v) => update(() => enabled = v),
+              ),
+              TextFormField(
+                initialValue: _smoothWindow.toString(),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: '骨架平滑窗口（秒）',
+                  helperText: '建議 0.5 秒；0–1 秒，前後各半。信心門檻 0.15，不補缺點。',
+                  errorText: window == null ? '請輸入 0 到 1 的有效秒數' : null,
+                ),
+                onChanged: (text) => update(() {
+                  final n = double.tryParse(text.replaceAll(',', '.'));
+                  window = n != null && n.isFinite && n >= 0 && n <= 1
+                      ? n
+                      : null;
+                }),
+              ),
+              Text('B 起點搜尋範圍：±${percent.round()}%'),
+              Slider(
+                value: percent,
+                min: 0,
+                max: 50,
+                divisions: 50,
+                label: '${percent.round()}%',
+                onChanged: (v) => update(() => percent = v),
+              ),
+              const Text(
+                '依 B 選定區間長度計算起點搜尋範圍。0% 固定起點；終點保留。固定 A，獨立搜尋 B 速度 0.1–4x，允許尾端不同時播完。',
+              ),
+              Text(
+                '例：B 為 3 秒時，起點可調整 ±${(3 * percent / 100).toStringAsFixed(2)} 秒。',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: window == null
+                  ? null
+                  : () => Navigator.pop(context, (
+                      percent / 100,
+                      window!,
+                      enabled,
+                      fps,
+                    )),
+              child: const Text('儲存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (value == null || !mounted) return;
+    try {
+      final file = await _aiSettingsFile();
+      await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode({
+          'searchFraction': value.$1,
+          'smoothWindow': value.$2,
+          'smoothEnabled': value.$3,
+          'samplingFps': value.$4,
+        }),
+        flush: true,
+      );
+      if (mounted) {
+        setState(() {
+          final fpsChanged = _samplingFps != value.$4;
+          _samplingFps = value.$4;
+          _searchFraction = value.$1;
+          _smoothWindow = value.$2;
+          _smoothEnabled = value.$3;
+          for (final track in [_trackA, _trackB]) {
+            if (track == null) continue;
+            if (fpsChanged) {
+              track.pose = null;
+              track.processedPose = null;
+              track.poseStart = null;
+              track.poseEnd = null;
+            }
+            track.useProcessedPose = _smoothEnabled && _smoothWindow > 0;
+            if (track.pose != null) {
+              track.processedPose = medianPoseSequence(
+                track.pose!,
+                _smoothWindow,
+              );
+            }
+          }
+        });
+      }
+    } catch (error) {
+      if (mounted) _showProjectMessage('設定儲存失敗：$error');
+    }
+  }
+
+  Future<void> _togglePose(bool isA) async {
+    final track = isA ? _trackA : _trackB;
+    if (track == null) return;
+    setState(() => track.showPose = !track.showPose);
+    if (track.showPose && track.pose == null) {
+      _showProjectMessage('請按「AI 對齊」一次分析 A、B。');
+    }
+  }
+
+  Future<void> _runPoseAnalysis() async {
+    if (_poseAnalyzer != null || _exporting || !_settingsReady) return;
+    final a = _trackA;
+    final b = _trackB;
+    if (a == null || b == null) return;
+    final tracks = [a, b];
+    final anchorStart = b.trim.start.inMicroseconds / 1e6;
+    final anchorEnd = b.trim.end.inMicroseconds / 1e6;
+    final radius = (anchorEnd - anchorStart) * _searchFraction;
+    final searchStart = math.max(0.0, anchorStart - radius);
+    final searchEnd = math.min(
+      b.player.value.duration.inMicroseconds / 1e6,
+      anchorEnd + radius,
+    );
+    if (tracks.any(
+          (t) =>
+              t.trim.duration.inMilliseconds > 60000 ||
+              t.trim.duration.inMilliseconds < 1000,
+        ) ||
+        a.trim.duration.inMilliseconds > 30000 ||
+        searchEnd - searchStart > 60) {
+      _showProjectMessage('請先裁切：A 為 1–30 秒，B 至少 1 秒，含搜尋邊界最多 60 秒。');
+      return;
+    }
+    final analyzer = MoveNetAnalyzer.forApp(
+      isAndroid: Platform.isAndroid,
+      trackMainPerson: true,
+    );
+    final analyzerB = MoveNetAnalyzer.forApp(
+      isAndroid: Platform.isAndroid,
+      trackMainPerson: true,
+    );
+    _activePoseAnalyzers.addAll([analyzer, analyzerB]);
+    _poseAnalyzer = analyzer;
+    try {
+      await _beginCommonSeek(0);
+    } catch (error) {
+      _poseAnalyzer = null;
+      _activePoseAnalyzers.clear();
+      if (mounted) _showProjectMessage('無法暫停播放：$error');
+      return;
+    }
+    if (!mounted) {
+      _poseAnalyzer = null;
+      _activePoseAnalyzers.clear();
+      return;
+    }
+    final status = ValueNotifier<String>(
+      '${Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8'} 分析準備中\n追蹤主要人物；多人交錯時請檢查主角',
+    );
+    final dialog = DialogRoute<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('AI 對齊 · 固定 A'),
+          content: ValueListenableBuilder<String>(
+            valueListenable: status,
+            builder: (_, value, child) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const LinearProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(value),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _cancelPoseAnalysis();
+                status.value = '正在取消，完成目前工作後釋放模型…';
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final navigator = Navigator.of(context);
+    unawaited(navigator.push(dialog));
+    PoseAlignmentResult? result;
+    Object? failure;
+    try {
+      final progress = [0.0, 0.0];
+      Future<void> analyzeTrack(int index) async {
+        final track = tracks[index];
+        final trackAnalyzer = index == 0 ? analyzer : analyzerB;
+        try {
+          final start = identical(track, b)
+              ? searchStart
+              : track.trim.start.inMicroseconds / 1e6;
+          final end = identical(track, b)
+              ? searchEnd
+              : track.trim.end.inMicroseconds / 1e6;
+          if (track.pose == null ||
+              track.poseStart! > start ||
+              track.poseEnd! < end) {
+            final sequence = await trackAnalyzer.analyze(
+              path: track.source.path,
+              start: start,
+              end: end,
+              aspectRatio: track.player.value.aspectRatio,
+              samplingFps: _samplingFps == 0 ? null : _samplingFps,
+              onProgress: (p) {
+                if (!analyzer.cancelled) {
+                  progress[index] = p;
+                  status.value =
+                      '${Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8'} 並行分析\nA ${(progress[0] * 100).round()}% · B ${(progress[1] * 100).round()}%\n追蹤主要人物';
+                }
+              },
+            );
+            if (!mounted || analyzer.cancelled) throw PoseAnalysisCancelled();
+            track.pose = sequence;
+            track.processedPose = medianPoseSequence(sequence, _smoothWindow);
+            track.useProcessedPose = _smoothEnabled && _smoothWindow > 0;
+            track.poseStart = start;
+            track.poseEnd = end;
+          }
+          if (!mounted || analyzer.cancelled) throw PoseAnalysisCancelled();
+          setState(() => track.showPose = true);
+          progress[index] = 1;
+        } catch (error) {
+          if (error is! PoseAnalysisCancelled) failure ??= error;
+          _cancelPoseAnalysis();
+          rethrow;
+        }
+      }
+
+      // Wait for both jobs (including cleanup on failure) before using results
+      // or disposing the shared progress notifier.
+      await runParallelPoseJobs(() => analyzeTrack(0), () => analyzeTrack(1));
+      {
+        status.value = '正在搜尋 B 的起點與速度…\nA 的裁切與速度保持固定';
+        result = await compute(
+          solveThunderAlignment,
+          PoseAlignmentRequest(
+            a: _smoothEnabled ? a.processedPose! : a.pose!,
+            b: _smoothEnabled ? b.processedPose! : b.pose!,
+            aStart: a.trim.start.inMicroseconds / 1e6,
+            aEnd: a.trim.end.inMicroseconds / 1e6,
+            aRate: a.rate.value,
+            bStart: searchStart,
+            bEnd: searchEnd,
+            bAnchorStart: anchorStart,
+            bAnchorEnd: anchorEnd,
+            searchFraction: _searchFraction,
+            mirrorA: _mirrorA,
+            mirrorB: _mirrorB,
+          ),
+        );
+      }
+    } catch (error) {
+      failure ??= error;
+    } finally {
+      if (dialog.isActive) navigator.removeRoute(dialog);
+      status.dispose();
+      _poseAnalyzer = null;
+      _activePoseAnalyzers.clear();
+    }
+    if (!mounted ||
+        failure is PoseAnalysisCancelled ||
+        (analyzer.cancelled && failure == null)) {
+      return;
+    }
+    if (failure != null) {
+      _showProjectMessage('骨架分析失敗：$failure');
+      return;
+    }
+    if (result == null) {
+      _showProjectMessage('有效骨架或重疊區間不足，無法建議對齊。請檢查骨架或調整 B 搜尋比例。A、B 參數未變更。');
+      return;
+    }
+    final suggestion = result;
+    final apply = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI 對齊建議'),
+        content: Text(
+          'A 維持目前設定\n'
+          'B 起點：${suggestion.bStart.toStringAsFixed(2)} 秒\n'
+          'B 終點：${anchorEnd.toStringAsFixed(2)} 秒（保留）\n'
+          'B 速度：${suggestion.bRate.toStringAsFixed(3)}x\n'
+          '有效骨架：${(suggestion.coverage * 100).round()}%\n'
+          '姿勢差異：${suggestion.error.toStringAsFixed(3)}（越低越相似）\n\n'
+          '${suggestion.ambiguous ? '有其他相近答案，可能是重複動作，請特別檢查預覽。\n' : ''}'
+          '人物交錯仍可能辨識錯人，請檢查骨架。尾端不一定同時播完。套用後可共同播放預覽，也可以復原。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('保留原設定'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('套用並預覽'),
+          ),
+        ],
+      ),
+    );
+    if (apply != true ||
+        !mounted ||
+        !identical(a, _trackA) ||
+        !identical(b, _trackB)) {
+      return;
+    }
+    final oldTrim = b.trim;
+    final oldRate = b.rate;
+    try {
+      await b.player.setPlaybackSpeed(suggestion.bRate);
+      if (!mounted) return;
+      setState(() {
+        _beforeAiTrack = b;
+        _beforeAiTrim = oldTrim;
+        _beforeAiRate = oldRate;
+        b.rate = PlaybackRate.ab(suggestion.bRate);
+        b.trim = TimeRange(
+          start: Duration(microseconds: (suggestion.bStart * 1e6).round()),
+          end: Duration(microseconds: (anchorEnd * 1e6).round()),
+        );
+        _alignmentLabel =
+            'AI：B ${suggestion.bStart.toStringAsFixed(2)}s · ${suggestion.bRate.toStringAsFixed(3)}x';
+      });
+      await _seekBoth(0);
+      if (mounted) await _toggleCommonPlayback();
+    } catch (error) {
+      if (mounted) _showProjectMessage('預覽未完成，可按復原還原 B：$error');
+    }
+  }
+
+  Future<void> _undoAlignment() async {
+    final b = _trackB;
+    if (b == null || !identical(b, _beforeAiTrack) || _beforeAiTrim == null) {
+      return;
+    }
+    await _beginCommonSeek(0);
+    await b.player.setPlaybackSpeed(_beforeAiRate!.value);
+    if (!mounted) return;
+    setState(() {
+      b.trim = _beforeAiTrim!;
+      b.rate = _beforeAiRate!;
+      _beforeAiTrack = null;
+      _alignmentLabel = null;
+    });
+    await _seekBoth(0);
+  }
 
   Duration get _sharedDuration {
     final a = _trackA;
@@ -121,7 +591,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       player: player,
       seeker: LatestVideoSeeker(player),
       trim: TimeRange(start: Duration.zero, end: player.value.duration),
-      rate: PlaybackRate(1),
+      rate: PlaybackRate.ab(1),
     );
     if (!mounted) {
       await player.dispose();
@@ -316,6 +786,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final end = Duration(milliseconds: values.end.round());
     final startMoved = (start - old.start).abs() >= (end - old.end).abs();
     track.trim = TimeRange(start: start, end: end);
+    _alignmentLabel = null;
+    _beforeAiTrack = null;
     if (mounted) {
       setState(() {
         _progress = 0;
@@ -329,6 +801,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final track = isA ? _trackA : _trackB;
     if (track == null) return;
     track.rate = rate;
+    _alignmentLabel = null;
+    _beforeAiTrack = null;
     await track.player.setPlaybackSpeed(rate.value);
     if (mounted) setState(() => _progress = 0);
   }
@@ -571,7 +1045,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
     );
     await player.initialize();
-    final rate = PlaybackRate((data['rate'] as num).toDouble());
+    final rate = PlaybackRate.ab((data['rate'] as num).toDouble());
     await player.setPlaybackSpeed(rate.value);
     return _TrackState(
       source: source,
@@ -808,6 +1282,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
 
   @override
   void dispose() {
+    _cancelPoseAnalysis();
     _cancelCustomAudioSchedule();
     _trackA?.seeker.dispose();
     _trackB?.seeker.dispose();
@@ -828,6 +1303,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       _TrackCard(
         title: 'A・參考影片',
         track: _trackA,
+        onTogglePose: () => _togglePose(true),
         onPick: () => _pick(true),
         onTogglePlay: () => _toggleTrack(true),
         onTrimChanged: (values) => _changeTrim(true, values),
@@ -839,6 +1315,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       _TrackCard(
         title: 'B・我的影片',
         track: _trackB,
+        onTogglePose: () => _togglePose(false),
         onPick: () => _pick(false),
         onTogglePlay: () => _toggleTrack(false),
         onTrimChanged: (values) => _changeTrim(false, values),
@@ -873,6 +1350,46 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
               onExport: _export,
             ),
             const SizedBox(height: 4),
+            SizedBox(
+              height: 36,
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed:
+                        _trackA != null &&
+                            _trackB != null &&
+                            !_exporting &&
+                            _settingsReady
+                        ? () => _runPoseAnalysis()
+                        : null,
+                    icon: const Icon(Icons.auto_awesome, size: 18),
+                    label: const Text('AI 對齊（固定 A）'),
+                  ),
+                  IconButton(
+                    tooltip: 'AI 對齊設定',
+                    onPressed: _settingsReady && _poseAnalyzer == null
+                        ? _showAiSettings
+                        : null,
+                    icon: const Icon(Icons.tune, size: 18),
+                  ),
+                  if (_alignmentLabel != null &&
+                      identical(_beforeAiTrack, _trackB)) ...[
+                    Expanded(
+                      child: Text(
+                        _alignmentLabel!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _undoAlignment,
+                      child: const Text('復原'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
             Expanded(
               child: effectiveLayout == _ComparisonLayout.horizontal
                   ? Row(
@@ -1086,6 +1603,7 @@ final class _TrackCard extends StatelessWidget {
   const _TrackCard({
     required this.title,
     required this.track,
+    required this.onTogglePose,
     required this.onPick,
     required this.onTogglePlay,
     required this.onTrimChanged,
@@ -1097,6 +1615,7 @@ final class _TrackCard extends StatelessWidget {
 
   final String title;
   final _TrackState? track;
+  final VoidCallback onTogglePose;
   final VoidCallback onPick;
   final VoidCallback onTogglePlay;
   final ValueChanged<RangeValues> onTrimChanged;
@@ -1108,6 +1627,11 @@ final class _TrackCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = track;
+    final poseFrame =
+        (value?.useProcessedPose == true
+                ? value?.processedPose ?? value?.pose
+                : value?.pose)
+            ?.at((value!.player.value.position.inMicroseconds) / 1e6);
     final video = ColoredBox(
       color: Colors.black,
       child: value == null
@@ -1121,9 +1645,45 @@ final class _TrackCard extends StatelessWidget {
           : Center(
               child: AspectRatio(
                 aspectRatio: value.player.value.aspectRatio,
-                child: Transform.flip(
-                  flipX: mirrored,
-                  child: VideoPlayer(value.player),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.flip(
+                      flipX: mirrored,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          VideoPlayer(value.player),
+                          if (value.showPose) PoseOverlay(frame: poseFrame),
+                        ],
+                      ),
+                    ),
+                    if (value.showPose)
+                      Positioned(
+                        left: 4,
+                        top: 4,
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: Colors.black54,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
+                              child: Text(
+                                poseFrame == null
+                                    ? '此時間未分析'
+                                    : '${value.useProcessedPose ? "平滑" : "原始"} · ${poseFrame.points.where((p) => p.score >= .15).length}/17 · 橘色為補點',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -1158,6 +1718,7 @@ final class _TrackCard extends StatelessWidget {
                       ),
                       Expanded(
                         child: PlaybackRateControl(
+                          maximum: PlaybackRate.abMaximum,
                           value: value.rate,
                           onChanged: onRateChanged,
                         ),
@@ -1174,6 +1735,7 @@ final class _TrackCard extends StatelessWidget {
                     ),
                   ),
                   PlaybackRateControl(
+                    maximum: PlaybackRate.abMaximum,
                     value: value.rate,
                     onChanged: onRateChanged,
                     showSlider: false,
@@ -1224,6 +1786,14 @@ final class _TrackCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
+                if (value != null)
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: value.showPose ? '隱藏骨架' : '顯示骨架',
+                    onPressed: onTogglePose,
+                    isSelected: value.showPose,
+                    icon: const Icon(Icons.accessibility_new),
+                  ),
                 if (value != null)
                   IconButton(
                     visualDensity: VisualDensity.compact,

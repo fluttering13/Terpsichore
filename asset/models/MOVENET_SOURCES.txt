@@ -1,0 +1,9 @@
+Google MoveNet SinglePose Thunder INT8 v4 (non-Android native fallback)
+https://tfhub.dev/google/lite-model/movenet/singlepose/thunder/tflite/int8/4?lite-format=tflite
+File: movenet-thunder-int8.tflite
+SHA256: b72fed22707cd6fb94b5a248b9bddb9c062b9f445471b4fa263407cf6d222011
+Input uint8 [1,256,256,3], RGB 0..255. Output float32 [1,1,17,3], y/x/score.
+
+STREAM-like ROI reuse; one inference per sample, no rotation retries.
+
+Research/development provenance, not a license grant or distribution clearance.

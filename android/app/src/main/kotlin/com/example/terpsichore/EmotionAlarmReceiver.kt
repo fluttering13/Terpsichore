@@ -6,6 +6,8 @@ import android.content.Intent
 
 class EmotionAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        EmotionBackmailManager.onInactivityAlarm(context)
+        if (intent.getBooleanExtra("test_notification", false)) {
+            EmotionBackmailManager.deliverTestNotification(context)
+        } else EmotionBackmailManager.onInactivityAlarm(context)
     }
 }

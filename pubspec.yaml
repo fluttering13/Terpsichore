@@ -20,6 +20,7 @@ dependencies:
   saver_gallery: ^5.1.0
   share_plus: ^13.3.0
   video_player: ^2.14.0
+  tflite_flutter: 0.12.1
 
 dev_dependencies:
   flutter_test:
@@ -36,6 +37,8 @@ flutter:
   uses-material-design: true
   assets:
     - asset/logo.png
+    - asset/models/movenet-thunder-int8.tflite
+    - asset/models/MOVENET_SOURCES.txt
 
 flutter_launcher_icons:
   android: true
