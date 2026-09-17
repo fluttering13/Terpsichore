@@ -2,6 +2,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -31,11 +34,114 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
         </activity>
+
+        <activity-alias
+            android:name=".${emotionLauncherAlias}"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="Terpsichore"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <meta-data
+            android:name="com.example.terpsichore.EMOTION_LAUNCHER_ALIAS"
+            android:value="${emotionLauncherAlias}" />
+        <activity-alias android:name=".QuestionIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_question" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".WaitingIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_waiting" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".AngryLeftIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_angry_left" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".AngryRightIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_angry_right" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".AngryFrontIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_angry_front" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".AngryFront2Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_angry_front2" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".SadIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_sad" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Sad2Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_sad2" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Sad3Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_sad3" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DelightfulIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_delightful" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".HappyIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_happy" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".BeginIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_begin" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Side1Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_side1" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Side2Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_side2" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Jump1Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_jump1" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Lay1Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_lay1" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Lay2Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_lay2" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Front2Icon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_front2" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
+        <!-- One-release migration tombstones for timestamped aliases produced
+             by older debug builds. Keep the names disabled so launchers can
+             reconcile stale pinned entries after an app update. -->
+        <activity-alias android:name=".FlutterDebugLauncher1789585372687" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".FlutterDebugLauncher1789585493646" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".FlutterDebugLauncher1789585628466" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".FlutterDebugLauncher1789586160928" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".FlutterDebugLauncher1789586289654" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".FlutterDebugLauncher1789586600846" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher" android:label="Terpsichore" android:targetActivity=".MainActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
+        <receiver
+            android:name=".EmotionAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".EmotionBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -4,6 +4,43 @@ import '../shared_video_playback/video_source.dart';
 
 enum AnalysisOutput { sideBySide, trackBOnly }
 
+enum AnalysisAudioSource { trackA, trackB, custom, muted }
+
+final class AnalysisCustomAudio {
+  AnalysisCustomAudio({
+    required this.id,
+    required this.path,
+    required this.label,
+    this.mediaDuration = Duration.zero,
+    TimeRange? trim,
+    this.timelineStart = Duration.zero,
+  }) : trim = trim ?? TimeRange(start: Duration.zero, end: Duration.zero);
+
+  final String id;
+  final String path;
+  final String label;
+  final Duration mediaDuration;
+  final TimeRange trim;
+  final Duration timelineStart;
+
+  Duration get timelineEnd => timelineStart + trim.duration;
+
+  AnalysisCustomAudio copyWith({
+    Duration? mediaDuration,
+    TimeRange? trim,
+    Duration? timelineStart,
+  }) => AnalysisCustomAudio(
+    id: id,
+    path: path,
+    label: label,
+    mediaDuration: mediaDuration ?? this.mediaDuration,
+    trim: (trim ?? this.trim).normalizedWithin(
+      mediaDuration ?? this.mediaDuration,
+    ),
+    timelineStart: timelineStart ?? this.timelineStart,
+  );
+}
+
 final class AnalysisTrack {
   const AnalysisTrack({
     required this.source,
@@ -35,11 +72,15 @@ final class AnalysisProject {
     required this.trackA,
     required this.trackB,
     required this.output,
+    this.audioSource = AnalysisAudioSource.trackB,
+    this.customAudio,
   });
 
   final AnalysisTrack trackA;
   final AnalysisTrack trackB;
   final AnalysisOutput output;
+  final AnalysisAudioSource audioSource;
+  final AnalysisCustomAudio? customAudio;
 
   Duration get sharedTimelineDuration =>
       trackA.effectiveDuration < trackB.effectiveDuration

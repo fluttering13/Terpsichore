@@ -9,9 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   camera: ^0.12.1
   file_picker: ^12.3.0
-  ffmpeg_kit_flutter_new_min: ^3.6.2
+  ffmpeg_kit_flutter_new_min_gpl: ^2.6.2
   flutter_onnxruntime: ^1.8.5
   just_audio: ^0.10.6
   path_provider: ^2.1.6

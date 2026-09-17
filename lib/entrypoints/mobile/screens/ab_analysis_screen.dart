@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -14,6 +16,7 @@ import '../../../core/shared_video_playback/time_range.dart';
 import '../../../core/shared_video_playback/video_source.dart';
 import '../../../infrastructure/analysis/ffmpeg_analysis_exporter.dart';
 import '../../../infrastructure/analysis/device_analysis_gallery.dart';
+import '../../../infrastructure/analysis/local_analysis_audio_picker.dart';
 import '../../../infrastructure/media/local_video_picker.dart';
 import '../../../infrastructure/saved_projects/local_saved_project_store.dart';
 import '../../../infrastructure/saved_projects/project_media_store.dart';
@@ -58,6 +61,7 @@ final class _TrackState {
 
 final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   static const _picker = LocalVideoPicker();
+  static const _audioPicker = LocalAnalysisAudioPicker();
   static const _exporter = FfmpegAnalysisExporter();
   static const _gallery = DeviceAnalysisGallery();
   static final _projectStore = LocalSavedProjectStore.instance;
@@ -65,6 +69,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
 
   _TrackState? _trackA;
   _TrackState? _trackB;
+  final AudioPlayer _customAudioPlayer = AudioPlayer();
+  Timer? _customAudioStartTimer;
+  Timer? _customAudioEndTimer;
+  AnalysisCustomAudio? _customAudio;
   double _progress = 0;
   bool _commonPlaying = false;
   bool _endingCommonPlayback = false;
@@ -74,6 +82,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   bool _mirrorB = false;
   _ComparisonLayout _layout = _ComparisonLayout.vertical;
   AnalysisOutput _output = AnalysisOutput.sideBySide;
+  AnalysisAudioSource _audioSource = AnalysisAudioSource.trackB;
   AnalysisGalleryFolder _exportFolder = AnalysisGalleryFolder.defaultFolder;
   String? _savedProjectId;
   String? _savedProjectName;
@@ -86,6 +95,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         trackA: a.toDomain(),
         trackB: b.toDomain(),
         output: _output,
+        audioSource: _audioSource,
+        customAudio: _customAudio,
       ).sharedTimelineDuration;
     }
     return (a ?? b)?.toDomain().effectiveDuration ?? Duration.zero;
@@ -99,6 +110,12 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
     );
     await player.initialize();
+    await player.setVolume(
+      _audioSource ==
+              (isA ? AnalysisAudioSource.trackA : AnalysisAudioSource.trackB)
+          ? 1
+          : 0,
+    );
     final state = _TrackState(
       source: source,
       player: player,
@@ -162,12 +179,14 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   Future<void> _finishCommonPlayback() async {
     if (_endingCommonPlayback) return;
     _endingCommonPlayback = true;
+    _cancelCustomAudioSchedule();
     await Future.wait(
       [
         _trackA?.player,
         _trackB?.player,
       ].whereType<VideoPlayerController>().map((player) => player.pause()),
     );
+    await _customAudioPlayer.pause();
     if (mounted) {
       setState(() {
         _progress = 1;
@@ -185,6 +204,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         trackA: a.toDomain(),
         trackB: b.toDomain(),
         output: _output,
+        audioSource: _audioSource,
+        customAudio: _customAudio,
       );
       return project.sourcePositionAt(track.toDomain(), progress);
     }
@@ -204,17 +225,22 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     if (b != null) {
       operations.add(b.seeker.seek(bPosition!));
     }
+    if (_audioSource == AnalysisAudioSource.custom) {
+      operations.add(_syncCustomAudio(_sharedDuration * progress));
+    }
     await Future.wait(operations);
   }
 
   Future<void> _beginCommonSeek(double _) async {
     _commonPlaying = false;
+    _cancelCustomAudioSchedule();
     await Future.wait(
       [
         _trackA?.player,
         _trackB?.player,
       ].whereType<VideoPlayerController>().map((player) => player.pause()),
     );
+    await _customAudioPlayer.pause();
     if (mounted) setState(() {});
   }
 
@@ -222,11 +248,20 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final tracks = [_trackA, _trackB].whereType<_TrackState>().toList();
     if (tracks.isEmpty) return;
     if (_commonPlaying) {
-      await Future.wait(tracks.map((track) => track.player.pause()));
+      _cancelCustomAudioSchedule();
+      await Future.wait([
+        ...tracks.map((track) => track.player.pause()),
+        _customAudioPlayer.pause(),
+      ]);
       if (mounted) setState(() => _commonPlaying = false);
       return;
     }
-    await Future.wait(tracks.map((track) => track.player.pause()));
+    await Future.wait([
+      ...tracks.map((track) => track.player.pause()),
+      _customAudioPlayer.pause(),
+    ]);
+    _cancelCustomAudioSchedule();
+    await _applySelectedAudioSource();
     if (_progress >= 0.999) await _seekBoth(0);
     await Future.wait(
       tracks.map(
@@ -234,6 +269,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       ),
     );
     await Future.wait(tracks.map((track) => track.player.play()));
+    if (_audioSource == AnalysisAudioSource.custom) {
+      await _syncCustomAudio(_sharedDuration * _progress, play: true);
+    }
     // Some Android devices briefly yield audio focus while the second native
     // player starts. With mixing enabled, retry any controller that did not
     // remain playing so A and B enter the shared session together.
@@ -248,17 +286,20 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final track = isA ? _trackA : _trackB;
     if (track == null) return;
     if (_commonPlaying) {
+      _cancelCustomAudioSchedule();
       await Future.wait(
         [
           _trackA?.player,
           _trackB?.player,
         ].whereType<VideoPlayerController>().map((player) => player.pause()),
       );
+      await _customAudioPlayer.pause();
       _commonPlaying = false;
     }
     if (track.player.value.isPlaying) {
       await track.player.pause();
     } else {
+      await track.player.setVolume(1);
       if (track.player.value.position >= track.trim.end) {
         await track.seeker.seek(track.trim.start);
       }
@@ -291,6 +332,133 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     await track.player.setPlaybackSpeed(rate.value);
     if (mounted) setState(() => _progress = 0);
   }
+
+  Future<void> _selectAudioSource(AnalysisAudioSource source) async {
+    if (source == AnalysisAudioSource.custom) {
+      if (_commonPlaying) await _beginCommonSeek(_progress);
+      if (_customAudio == null) {
+        await _pickCustomAudio();
+      } else {
+        setState(() => _audioSource = AnalysisAudioSource.custom);
+        await _applySelectedAudioSource();
+        await _showCustomAudioEditor();
+      }
+      return;
+    }
+    _cancelCustomAudioSchedule();
+    setState(() => _audioSource = source);
+    await _applySelectedAudioSource();
+  }
+
+  Future<void> _pickCustomAudio() async {
+    if (_commonPlaying) await _beginCommonSeek(_progress);
+    final picked = await _audioPicker.pick();
+    if (picked == null) return;
+    try {
+      final duration = await _customAudioPlayer.setFilePath(picked.path);
+      if (duration == null || duration <= Duration.zero) {
+        throw StateError('無法取得音訊長度');
+      }
+      final source = picked.copyWith(
+        mediaDuration: duration,
+        trim: TimeRange(start: Duration.zero, end: duration),
+      );
+      if (!mounted) return;
+      setState(() {
+        _customAudio = source;
+        _audioSource = AnalysisAudioSource.custom;
+      });
+      await _applySelectedAudioSource();
+      await _syncCustomAudio(_sharedDuration * _progress, play: _commonPlaying);
+      await _showCustomAudioEditor();
+    } catch (error) {
+      if (mounted) _showProjectMessage('無法開啟自訂音源：$error');
+    }
+  }
+
+  Future<void> _showCustomAudioEditor() async {
+    final source = _customAudio;
+    if (source == null) return;
+    final result = await showModalBottomSheet<_CustomAudioEditResult>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CustomAudioTimelineEditor(
+        source: source,
+        timelineDuration: _sharedDuration,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result.replaceSource) {
+      await _pickCustomAudio();
+      return;
+    }
+    setState(() => _customAudio = result.source);
+    await _syncCustomAudio(_sharedDuration * _progress, play: _commonPlaying);
+  }
+
+  void _cancelCustomAudioSchedule() {
+    _customAudioStartTimer?.cancel();
+    _customAudioEndTimer?.cancel();
+    _customAudioStartTimer = null;
+    _customAudioEndTimer = null;
+  }
+
+  Future<void> _syncCustomAudio(
+    Duration timelinePosition, {
+    bool play = false,
+  }) async {
+    _cancelCustomAudioSchedule();
+    final source = _customAudio;
+    if (source == null || _audioSource != AnalysisAudioSource.custom) {
+      await _customAudioPlayer.pause();
+      return;
+    }
+    await _customAudioPlayer.pause();
+    if (timelinePosition >= source.timelineEnd) {
+      await _customAudioPlayer.seek(source.trim.end);
+      return;
+    }
+    if (timelinePosition < source.timelineStart) {
+      await _customAudioPlayer.seek(source.trim.start);
+      if (!play) return;
+      final delay = source.timelineStart - timelinePosition;
+      _customAudioStartTimer = Timer(delay, () async {
+        if (!_commonPlaying ||
+            _audioSource != AnalysisAudioSource.custom ||
+            !mounted) {
+          return;
+        }
+        unawaited(_customAudioPlayer.play());
+        _customAudioEndTimer = Timer(source.trim.duration, () {
+          _customAudioPlayer.pause();
+        });
+      });
+      return;
+    }
+    final elapsed = timelinePosition - source.timelineStart;
+    await _customAudioPlayer.seek(source.trim.start + elapsed);
+    if (!play) return;
+    unawaited(_customAudioPlayer.play());
+    _customAudioEndTimer = Timer(source.trim.duration - elapsed, () {
+      _customAudioPlayer.pause();
+    });
+  }
+
+  Future<void> _applySelectedAudioSource() => Future.wait([
+    if (_trackA case final track?)
+      track.player.setVolume(
+        _audioSource == AnalysisAudioSource.trackA ? 1 : 0,
+      ),
+    if (_trackB case final track?)
+      track.player.setVolume(
+        _audioSource == AnalysisAudioSource.trackB ? 1 : 0,
+      ),
+    _customAudioPlayer.setVolume(
+      _audioSource == AnalysisAudioSource.custom ? 1 : 0,
+    ),
+    if (_audioSource != AnalysisAudioSource.custom) _customAudioPlayer.pause(),
+  ]);
 
   Future<void> _setLayout(_ComparisonLayout layout) async {
     setState(() => _layout = layout);
@@ -344,6 +512,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       final savedB = _trackB == null
           ? null
           : await _projectMediaStore.persistVideo(_trackB!.source);
+      final savedAudio = _customAudio == null
+          ? null
+          : await _projectMediaStore.persistAudio(_customAudio!);
       final project = await _projectStore.save(
         id: _savedProjectId,
         name: name!,
@@ -360,6 +531,18 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
           'mirrorB': _mirrorB,
           'layout': _layout.name,
           'output': _output.name,
+          'audioSource': _audioSource.name,
+          'customAudio': savedAudio == null
+              ? null
+              : {
+                  'id': savedAudio.id,
+                  'path': savedAudio.path,
+                  'label': savedAudio.label,
+                  'mediaDurationMs': savedAudio.mediaDuration.inMilliseconds,
+                  'trimStartMs': savedAudio.trim.start.inMilliseconds,
+                  'trimEndMs': savedAudio.trim.end.inMilliseconds,
+                  'timelineStartMs': savedAudio.timelineStart.inMilliseconds,
+                },
           'exportFolder': _exportFolder.path,
         },
       );
@@ -424,9 +607,49 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       final data = project.data;
       final layoutName = data['layout'] as String?;
       final outputName = data['output'] as String?;
+      final audioSourceName = data['audioSource'] as String?;
+      final customAudioData = data['customAudio'] == null
+          ? null
+          : Map<String, Object?>.from(data['customAudio'] as Map);
+      var customAudio = customAudioData == null
+          ? null
+          : AnalysisCustomAudio(
+              id: customAudioData['id'] as String,
+              path: customAudioData['path'] as String,
+              label: customAudioData['label'] as String,
+              mediaDuration: Duration(
+                milliseconds: (customAudioData['mediaDurationMs'] as int?) ?? 0,
+              ),
+              trim: TimeRange(
+                start: Duration(
+                  milliseconds: (customAudioData['trimStartMs'] as int?) ?? 0,
+                ),
+                end: Duration(
+                  milliseconds: (customAudioData['trimEndMs'] as int?) ?? 0,
+                ),
+              ),
+              timelineStart: Duration(
+                milliseconds: (customAudioData['timelineStartMs'] as int?) ?? 0,
+              ),
+            );
       final folder = AnalysisGalleryFolder.tryParse(
         (data['exportFolder'] as String?) ?? '',
       );
+      await _customAudioPlayer.pause();
+      if (customAudio == null) {
+        await _customAudioPlayer.stop();
+      } else {
+        final detectedDuration = await _customAudioPlayer.setFilePath(
+          customAudio.path,
+        );
+        if (customAudio.mediaDuration <= Duration.zero &&
+            detectedDuration != null) {
+          customAudio = customAudio.copyWith(
+            mediaDuration: detectedDuration,
+            trim: TimeRange(start: Duration.zero, end: detectedDuration),
+          );
+        }
+      }
       setState(() {
         _trackA = nextA;
         _trackB = nextB;
@@ -444,6 +667,15 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                 .where((value) => value.name == outputName)
                 .firstOrNull ??
             AnalysisOutput.sideBySide;
+        _audioSource =
+            AnalysisAudioSource.values
+                .where((value) => value.name == audioSourceName)
+                .firstOrNull ??
+            AnalysisAudioSource.trackB;
+        _customAudio = customAudio;
+        if (_audioSource == AnalysisAudioSource.custom && customAudio == null) {
+          _audioSource = AnalysisAudioSource.trackB;
+        }
         _exportFolder = folder ?? AnalysisGalleryFolder.defaultFolder;
         _orientationLocked = false;
         _savedProjectId = project.id;
@@ -453,6 +685,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       nextB?.player.addListener(() => _onTrackTick(nextB!.player, false));
       await SystemChrome.setPreferredOrientations([]);
       await _seekBoth(_progress);
+      await _applySelectedAudioSource();
       oldA?.seeker.dispose();
       oldB?.seeker.dispose();
       await oldA?.player.dispose();
@@ -485,6 +718,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         trackA: a.toDomain(),
         trackB: b.toDomain(),
         output: _output,
+        audioSource: _audioSource,
+        customAudio: _customAudio,
       );
       final result = await _exporter.export(AnalysisExportRequest(project));
       if (!mounted) return;
@@ -573,10 +808,12 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
 
   @override
   void dispose() {
+    _cancelCustomAudioSchedule();
     _trackA?.seeker.dispose();
     _trackB?.seeker.dispose();
     _trackA?.player.dispose();
     _trackB?.player.dispose();
+    _customAudioPlayer.dispose();
     if (_orientationLocked) SystemChrome.setPreferredOrientations([]);
     super.dispose();
   }
@@ -659,9 +896,12 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
               progress: _progress,
               duration: _sharedDuration,
               enabled: _trackA != null || _trackB != null,
+              audioSource: _audioSource,
+              customAudioLabel: _customAudio?.label,
               onToggle: _toggleCommonPlayback,
               onSeekStart: _beginCommonSeek,
               onSeek: _seekBoth,
+              onAudioSourceChanged: _selectAudioSource,
             ),
           ],
         ),
@@ -1059,18 +1299,24 @@ final class _CommonTimeline extends StatelessWidget {
     required this.progress,
     required this.duration,
     required this.enabled,
+    required this.audioSource,
+    required this.customAudioLabel,
     required this.onToggle,
     required this.onSeekStart,
     required this.onSeek,
+    required this.onAudioSourceChanged,
   });
 
   final bool playing;
   final double progress;
   final Duration duration;
   final bool enabled;
+  final AnalysisAudioSource audioSource;
+  final String? customAudioLabel;
   final VoidCallback onToggle;
   final ValueChanged<double> onSeekStart;
   final ValueChanged<double> onSeek;
+  final ValueChanged<AnalysisAudioSource> onAudioSourceChanged;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1079,6 +1325,60 @@ final class _CommonTimeline extends StatelessWidget {
         tooltip: '共同播放',
         onPressed: enabled ? onToggle : null,
         icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+      ),
+      PopupMenuButton<AnalysisAudioSource>(
+        tooltip: switch (audioSource) {
+          AnalysisAudioSource.trackA => '音源：A（只擷取 A 的選取片段）',
+          AnalysisAudioSource.trackB => '音源：B（只擷取 B 的選取片段）',
+          AnalysisAudioSource.custom => '自訂音源：${customAudioLabel ?? '尚未選擇'}',
+          AnalysisAudioSource.muted => '音源：靜音',
+        },
+        initialValue: audioSource,
+        onSelected: onAudioSourceChanged,
+        icon: audioSource == AnalysisAudioSource.muted
+            ? const Icon(Icons.volume_off_outlined)
+            : audioSource == AnalysisAudioSource.custom
+            ? const Icon(Icons.audio_file_outlined)
+            : Badge(
+                label: Text(
+                  audioSource == AnalysisAudioSource.trackA ? 'A' : 'B',
+                ),
+                child: const Icon(Icons.audiotrack),
+              ),
+        itemBuilder: (_) => [
+          CheckedPopupMenuItem(
+            value: AnalysisAudioSource.trackA,
+            checked: audioSource == AnalysisAudioSource.trackA,
+            child: const ListTile(
+              title: Text('使用 A 音源'),
+              subtitle: Text('只取 A 目前選取的片段'),
+            ),
+          ),
+          CheckedPopupMenuItem(
+            value: AnalysisAudioSource.trackB,
+            checked: audioSource == AnalysisAudioSource.trackB,
+            child: const ListTile(
+              title: Text('使用 B 音源'),
+              subtitle: Text('只取 B 目前選取的片段'),
+            ),
+          ),
+          CheckedPopupMenuItem(
+            value: AnalysisAudioSource.custom,
+            checked: audioSource == AnalysisAudioSource.custom,
+            child: ListTile(
+              title: const Text('自訂音源'),
+              subtitle: Text(customAudioLabel ?? '選擇其他音訊檔'),
+            ),
+          ),
+          CheckedPopupMenuItem(
+            value: AnalysisAudioSource.muted,
+            checked: audioSource == AnalysisAudioSource.muted,
+            child: const ListTile(
+              title: Text('不要聲音'),
+              subtitle: Text('輸出靜音影片'),
+            ),
+          ),
+        ],
       ),
       Expanded(
         child: PrecisionScrubSlider(
@@ -1104,6 +1404,273 @@ final class _CommonTimeline extends StatelessWidget {
         style: Theme.of(context).textTheme.labelMedium,
       ),
     ],
+  );
+}
+
+final class _CustomAudioEditResult {
+  const _CustomAudioEditResult(this.source) : replaceSource = false;
+  const _CustomAudioEditResult.replace() : source = null, replaceSource = true;
+
+  final AnalysisCustomAudio? source;
+  final bool replaceSource;
+}
+
+final class _CustomAudioTimelineEditor extends StatefulWidget {
+  const _CustomAudioTimelineEditor({
+    required this.source,
+    required this.timelineDuration,
+  });
+
+  final AnalysisCustomAudio source;
+  final Duration timelineDuration;
+
+  @override
+  State<_CustomAudioTimelineEditor> createState() =>
+      _CustomAudioTimelineEditorState();
+}
+
+final class _CustomAudioTimelineEditorState
+    extends State<_CustomAudioTimelineEditor> {
+  final AudioPlayer _preview = AudioPlayer();
+  StreamSubscription<PlayerState>? _playerSubscription;
+  late RangeValues _trim;
+  late double _timelineStartMs;
+  bool _ready = false;
+  bool _playing = false;
+
+  double get _mediaMax => widget.source.mediaDuration.inMilliseconds
+      .toDouble()
+      .clamp(1, double.infinity)
+      .toDouble();
+
+  double get _timelineMax => widget.timelineDuration.inMilliseconds
+      .toDouble()
+      .clamp(1, double.infinity)
+      .toDouble();
+
+  @override
+  void initState() {
+    super.initState();
+    _trim = RangeValues(
+      widget.source.trim.start.inMilliseconds.toDouble().clamp(0, _mediaMax),
+      widget.source.trim.end.inMilliseconds.toDouble().clamp(0, _mediaMax),
+    );
+    _timelineStartMs = widget.source.timelineStart.inMilliseconds
+        .toDouble()
+        .clamp(0, _timelineMax);
+    _playerSubscription = _preview.playerStateStream.listen((state) {
+      if (!mounted) return;
+      final playing =
+          state.playing && state.processingState != ProcessingState.completed;
+      if (_playing != playing) setState(() => _playing = playing);
+    });
+    _loadPreview();
+  }
+
+  Future<void> _loadPreview() async {
+    await _preview.setFilePath(widget.source.path);
+    if (mounted) setState(() => _ready = true);
+  }
+
+  Future<void> _togglePreview() async {
+    if (!_ready) return;
+    if (_playing) {
+      await _preview.pause();
+      return;
+    }
+    final start = Duration(milliseconds: _trim.start.round());
+    final end = Duration(milliseconds: _trim.end.round());
+    await _preview.setClip(start: start, end: end);
+    await _preview.seek(Duration.zero);
+    unawaited(_preview.play());
+  }
+
+  Future<void> _stopPreview() async {
+    if (_playing) await _preview.pause();
+  }
+
+  AnalysisCustomAudio get _result => widget.source.copyWith(
+    trim: TimeRange(
+      start: Duration(milliseconds: _trim.start.round()),
+      end: Duration(milliseconds: _trim.end.round()),
+    ),
+    timelineStart: Duration(milliseconds: _timelineStartMs.round()),
+  );
+
+  @override
+  void dispose() {
+    _playerSubscription?.cancel();
+    _preview.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + bottomInset),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('自訂音源時間軸', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              Text(
+                widget.source.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '音源擷取範圍  ${_formatDuration(Duration(milliseconds: _trim.start.round()))}'
+                ' – ${_formatDuration(Duration(milliseconds: _trim.end.round()))}',
+              ),
+              RangeSlider(
+                values: _trim,
+                max: _mediaMax,
+                labels: RangeLabels(
+                  _formatDuration(Duration(milliseconds: _trim.start.round())),
+                  _formatDuration(Duration(milliseconds: _trim.end.round())),
+                ),
+                onChanged: (values) {
+                  _stopPreview();
+                  if (values.end - values.start < 100) return;
+                  setState(() => _trim = values);
+                },
+              ),
+              Row(
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _ready ? _togglePreview : null,
+                    icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+                    label: Text(_playing ? '暫停試聽' : '試聽選取片段'),
+                  ),
+                  const Spacer(),
+                  Text('共 ${_formatDuration(_result.trim.duration)}'),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '放入 A+B 時間軸的位置  ${_formatDuration(Duration(milliseconds: _timelineStartMs.round()))}',
+              ),
+              Slider(
+                value: _timelineStartMs,
+                max: _timelineMax,
+                label: _formatDuration(
+                  Duration(milliseconds: _timelineStartMs.round()),
+                ),
+                onChanged: (value) => setState(() => _timelineStartMs = value),
+              ),
+              _CustomAudioTimelinePreview(
+                timelineDuration: widget.timelineDuration,
+                source: _result,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '套用後可用下方「共同播放」預覽影片與外來音源的同步效果。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      const _CustomAudioEditResult.replace(),
+                    ),
+                    icon: const Icon(Icons.audio_file_outlined),
+                    label: const Text('更換音源'),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(context, _CustomAudioEditResult(_result)),
+                    child: const Text('套用'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _CustomAudioTimelinePreview extends StatelessWidget {
+  const _CustomAudioTimelinePreview({
+    required this.timelineDuration,
+    required this.source,
+  });
+
+  final Duration timelineDuration;
+  final AnalysisCustomAudio source;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final totalMs = timelineDuration.inMilliseconds.clamp(1, 1 << 62);
+      final left =
+          constraints.maxWidth *
+          (source.timelineStart.inMilliseconds / totalMs).clamp(0, 1);
+      final available = constraints.maxWidth - left;
+      final maxWidth = available.clamp(4.0, constraints.maxWidth).toDouble();
+      final width =
+          (constraints.maxWidth *
+                  (source.trim.duration.inMilliseconds / totalMs))
+              .clamp(4.0, maxWidth)
+              .toDouble();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        'A+B  0:00.0 — ${_formatDuration(timelineDuration)}',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: left,
+                  top: 25,
+                  width: width,
+                  height: 22,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: const Center(
+                      child: Text('外來音源', overflow: TextOverflow.clip),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    },
   );
 }
 

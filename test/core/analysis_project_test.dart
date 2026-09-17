@@ -44,4 +44,25 @@ void main() {
       const Duration(seconds: 15),
     );
   });
+
+  test('custom audio keeps its source trim and timeline placement', () {
+    final audio = AnalysisCustomAudio(
+      id: 'music',
+      path: '/music.mp3',
+      label: 'music.mp3',
+      mediaDuration: const Duration(seconds: 60),
+      trim: TimeRange(
+        start: const Duration(seconds: 12),
+        end: const Duration(seconds: 22),
+      ),
+      timelineStart: const Duration(seconds: 3),
+    );
+
+    expect(audio.trim.duration, const Duration(seconds: 10));
+    expect(audio.timelineEnd, const Duration(seconds: 13));
+
+    final moved = audio.copyWith(timelineStart: const Duration(seconds: 7));
+    expect(moved.trim.start, const Duration(seconds: 12));
+    expect(moved.timelineEnd, const Duration(seconds: 17));
+  });
 }

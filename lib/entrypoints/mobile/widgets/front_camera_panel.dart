@@ -249,9 +249,8 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
               top: 8,
               right: 56,
               child: IconButton.filledTonal(
-                onPressed: () => setState(
-                  () => _mirrorFrontCamera = !_mirrorFrontCamera,
-                ),
+                onPressed: () =>
+                    setState(() => _mirrorFrontCamera = !_mirrorFrontCamera),
                 tooltip: _mirrorFrontCamera ? '取消鏡像' : '開啟鏡像',
                 isSelected: _mirrorFrontCamera,
                 icon: const Icon(Icons.flip),

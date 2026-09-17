@@ -27,9 +27,15 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["emotionLauncherAlias"] = "FlutterLauncherIcon"
     }
 
     buildTypes {
+        debug {
+            // Keep this component name stable so launcher caches cannot retain
+            // a new Terpsichore shortcut after every debug installation.
+            manifestPlaceholders["emotionLauncherAlias"] = "FlutterDebugLauncher"
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
@@ -46,4 +52,26 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// A dynamic icon disables the manifest launcher while the app is idle. Before
+// a debug build, ask the currently installed debug app to re-enable that stable
+// component so `flutter run` can launch it without creating extra aliases.
+val enableDebugLauncher by tasks.registering(Exec::class) {
+    isIgnoreExitValue = true
+    onlyIf { System.getenv("CI") != "true" }
+    commandLine(
+        "${android.sdkDirectory}/platform-tools/adb",
+        "shell",
+        "am",
+        "broadcast",
+        "-n",
+        "com.example.terpsichore/.DebugLauncherReceiver",
+        "-a",
+        "com.example.terpsichore.ENABLE_DEBUG_LAUNCHER",
+    )
+}
+
+tasks.matching { it.name == "preDebugBuild" }.configureEach {
+    dependsOn(enableDebugLauncher)
 }

@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:ffmpeg_kit_flutter_new_min/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_min/return_code.dart';
+import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/ab_analysis/analysis_exporter.dart';
@@ -43,6 +43,24 @@ final class FfmpegAnalysisExporter implements AnalysisExporter {
   ) {
     final a = project.trackA;
     final b = project.trackB;
+    final custom = project.audioSource == AnalysisAudioSource.custom
+        ? project.customAudio
+        : null;
+    final hasAudio =
+        project.audioSource != AnalysisAudioSource.muted &&
+        (project.audioSource != AnalysisAudioSource.custom || custom != null);
+    final audioTrack = project.audioSource == AnalysisAudioSource.trackA
+        ? a
+        : b;
+    final audioInput = switch (project.audioSource) {
+      AnalysisAudioSource.trackA => '0:a?',
+      AnalysisAudioSource.trackB => '1:a?',
+      AnalysisAudioSource.custom => '2:a?',
+      AnalysisAudioSource.muted => '',
+    };
+    final audioFilter = custom == null
+        ? _audioTempoFilter(audioTrack.rate.value)
+        : 'adelay=${custom.timelineStart.inMilliseconds}:all=1';
     final filter = [
       '[0:v]setpts=${_inverse(a.rate.value)}*PTS,'
           'scale=640:720:force_original_aspect_ratio=decrease,'
@@ -66,48 +84,84 @@ final class FfmpegAnalysisExporter implements AnalysisExporter {
       _seconds(b.trim.duration),
       '-i',
       b.source.path,
+      if (custom != null) ...[
+        '-ss',
+        _seconds(custom.trim.start),
+        '-t',
+        _seconds(custom.trim.duration),
+        '-i',
+        custom.path,
+      ],
       '-filter_complex',
       filter,
       '-map',
       '[v]',
-      '-map',
-      '1:a?',
-      '-filter:a',
-      _audioTempoFilter(b.rate.value),
+      if (hasAudio) ...['-map', audioInput, '-filter:a', audioFilter],
       '-t',
       _seconds(project.sharedTimelineDuration),
+      if (!hasAudio) '-an',
       ..._encodingArguments,
       outputPath,
     ];
   }
 
   List<String> _trackBArguments(AnalysisProject project, String outputPath) {
+    final a = project.trackA;
     final b = project.trackB;
+    final custom = project.audioSource == AnalysisAudioSource.custom
+        ? project.customAudio
+        : null;
+    final hasAudio =
+        project.audioSource != AnalysisAudioSource.muted &&
+        (project.audioSource != AnalysisAudioSource.custom || custom != null);
+    final audioTrack = project.audioSource == AnalysisAudioSource.trackA
+        ? a
+        : b;
+    final audioInput = switch (project.audioSource) {
+      AnalysisAudioSource.trackA => '0:a?',
+      AnalysisAudioSource.trackB => '1:a?',
+      AnalysisAudioSource.custom => '2:a?',
+      AnalysisAudioSource.muted => '',
+    };
+    final audioFilter = custom == null
+        ? _audioTempoFilter(audioTrack.rate.value)
+        : 'adelay=${custom.timelineStart.inMilliseconds}:all=1';
     return [
       '-y',
+      '-ss',
+      _seconds(a.trim.start),
+      '-t',
+      _seconds(a.trim.duration),
+      '-i',
+      a.source.path,
       '-ss',
       _seconds(b.trim.start),
       '-t',
       _seconds(b.trim.duration),
       '-i',
       b.source.path,
+      if (custom != null) ...[
+        '-ss',
+        _seconds(custom.trim.start),
+        '-t',
+        _seconds(custom.trim.duration),
+        '-i',
+        custom.path,
+      ],
       '-vf',
       'setpts=${_inverse(b.rate.value)}*PTS,setsar=1',
       '-map',
-      '0:v:0',
-      '-map',
-      '0:a?',
-      '-filter:a',
-      _audioTempoFilter(b.rate.value),
+      '1:v:0',
+      if (hasAudio) ...['-map', audioInput, '-filter:a', audioFilter],
       '-t',
       _seconds(b.effectiveDuration),
+      if (!hasAudio) '-an',
       ..._encodingArguments,
       outputPath,
     ];
   }
 
   static const _encodingArguments = [
-    '-an',
     '-c:v',
     'mpeg4',
     '-q:v',
