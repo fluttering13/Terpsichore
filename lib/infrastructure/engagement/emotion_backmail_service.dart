@@ -92,9 +92,9 @@ final class EmotionBackmailService {
     }
   }
 
-  static Future<void> testNotification() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-    await _channel.invokeMethod<void>('testNotification');
+  static Future<bool> testNotification() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    return await _channel.invokeMethod<bool>('testNotification') ?? false;
   }
 
   static Future<void> openNotificationSettings() async {

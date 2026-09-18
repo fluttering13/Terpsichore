@@ -2,9 +2,10 @@ import 'dart:math' as math;
 import 'pose_alignment.dart';
 
 /// Centered coordinate median, without filling missing observations or crossing
-/// a joint's missing-frame / >200 ms boundary. Raw input remains untouched.
+/// a joint's missing-frame boundary (adjusted for explicit sampling FPS).
+/// Raw input remains untouched.
 PoseSequence medianPoseSequence(PoseSequence raw, double windowSeconds) {
-  final window = windowSeconds.isFinite ? windowSeconds.clamp(0.0, 1.0) : 0.0;
+  final window = windowSeconds.isFinite ? math.max(0.0, windowSeconds) : 0.0;
   final frames = raw.frames;
   bool valid(PosePoint p) => p.score >= .15 && p.x.isFinite && p.y.isFinite;
   double median(List<double> values) {
@@ -25,14 +26,16 @@ PoseSequence medianPoseSequence(PoseSequence raw, double windowSeconds) {
           var left = i, right = i;
           while (left > 0 &&
               valid(frames[left - 1].points[joint]) &&
-              frames[left].seconds - frames[left - 1].seconds <= .2 + 1e-8 &&
+              frames[left].seconds - frames[left - 1].seconds <=
+                  raw.gapLimit(.2) + 1e-8 &&
               frames[i].seconds - frames[left - 1].seconds <=
                   window / 2 + 1e-8) {
             left--;
           }
           while (right + 1 < frames.length &&
               valid(frames[right + 1].points[joint]) &&
-              frames[right + 1].seconds - frames[right].seconds <= .2 + 1e-8 &&
+              frames[right + 1].seconds - frames[right].seconds <=
+                  raw.gapLimit(.2) + 1e-8 &&
               frames[right + 1].seconds - frames[i].seconds <=
                   window / 2 + 1e-8) {
             right++;
@@ -50,6 +53,7 @@ PoseSequence medianPoseSequence(PoseSequence raw, double windowSeconds) {
       );
     }),
     raw.aspectRatio,
+    samplingFps: raw.samplingFps,
   );
 }
 

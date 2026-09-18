@@ -36,7 +36,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('AI 對齊設定'));
     await tester.pumpAndSettle();
-    expect(find.text('B 起點搜尋範圍：±10%'), findsOneWidget);
+    expect(find.text('B 對齊模式（A 始終固定）'), findsOneWidget);
+    expect(find.text('時間軸與倍速都搜尋'), findsOneWidget);
     expect(find.text('骨架平滑窗口（秒）'), findsOneWidget);
     final multiPerson = find.byKey(
       const ValueKey('pose-multi-person-filtering'),
@@ -46,7 +47,7 @@ void main() {
     expect(find.text('自動（6–12 FPS）'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('pose-sampling-fps')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('6 FPS').last);
+    await tester.tap(find.text('1 FPS').last);
     await tester.pumpAndSettle();
     expect(
       tester
@@ -54,7 +55,7 @@ void main() {
             find.byKey(const ValueKey('pose-sampling-fps')),
           )
           .initialValue,
-      6,
+      1,
     );
     final windowField = find.descendant(
       of: find.byType(AlertDialog),
@@ -68,7 +69,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    await tester.enterText(windowField, '0.35');
+    await tester.enterText(windowField, '2.5');
     await tester.pump();
     expect(
       tester
@@ -76,20 +77,17 @@ void main() {
           .onPressed,
       isNotNull,
     );
-    tester
-        .widget<Slider>(
-          find.descendant(
-            of: find.byType(AlertDialog),
-            matching: find.byType(Slider),
-          ),
-        )
-        .onChanged!(0);
-    await tester.pump();
-    expect(find.text('B 起點搜尋範圍：±0%'), findsOneWidget);
+    await tester.ensureVisible(find.text('時間軸與倍速都搜尋').first);
+    await tester.tap(find.text('時間軸與倍速都搜尋').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('固定時間軸，只搜尋倍速').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('保留 B 目前的裁切起點與終點'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('AI 對齊設定'));
     await tester.pumpAndSettle();
+    expect(find.text('時間軸與倍速都搜尋'), findsOneWidget);
     expect(multiPerson, findsNothing);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();

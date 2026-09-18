@@ -1,3 +1,5 @@
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
+import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -12,6 +14,7 @@ import '../../../core/shared_video_playback/time_range.dart';
 import '../../../core/shared_video_playback/video_source.dart';
 import '../../../infrastructure/media/local_video_picker.dart';
 import '../../../infrastructure/media/recorded_video_store.dart';
+import '../../../infrastructure/engagement/emotion_backmail_service.dart';
 import '../../../infrastructure/saved_projects/local_saved_project_store.dart';
 import '../../../infrastructure/saved_projects/project_media_store.dart';
 import '../../../infrastructure/video_playback/latest_video_seeker.dart';
@@ -55,9 +58,47 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
   int _loopEndEight = 1;
   bool _recording = false;
   bool _showCameraB = false;
+  bool _mirrorA = false;
   RecordingOutput _recordingOutput = RecordingOutput.dancerOnly;
   String? _savedProjectId;
   String? _savedProjectName;
+
+  Timer? _eggTimer;
+  bool _eggPlaybackActive = false;
+  TimeRange? _loopEditStart;
+  String get _eggSegment =>
+      '${_source?.path}:${_loop.start.inMicroseconds}:${_loop.end.inMicroseconds}';
+
+  @override
+  void initState() {
+    super.initState();
+    _eggTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _sampleEggs(),
+    );
+  }
+
+  void _sampleEggs() {
+    final service = EasterEggService.instance;
+    final player = _player;
+    if (!service.learningVisible ||
+        player == null ||
+        !player.value.isInitialized) {
+      return;
+    }
+    final continuingLoop =
+        _repeat && player.value.position >= _loop.end && _eggPlaybackActive;
+    _eggPlaybackActive =
+        player.value.isPlaying || _handlingLoop || continuingLoop;
+    final engine = service.engine;
+    engine.segment('learning', _eggSegment);
+    engine.learningFrame(
+      '${_source?.path}:${player.value.position.inMicroseconds}',
+      playing: _eggPlaybackActive,
+      rate: _rate.value,
+    );
+    engine.practice('learning', _eggPlaybackActive || _recording);
+  }
 
   Future<void> _pickVideo() async {
     final source = await _picker.pick();
@@ -72,6 +113,8 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       await next.dispose();
       return;
     }
+    _eggPlaybackActive = false;
+    EasterEggService.instance.engine.clearPause();
     _restCountdownGeneration++;
     setState(() {
       _source = source;
@@ -123,6 +166,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
           'loopStartEight': _loopStartEight,
           'loopEndEight': _loopEndEight,
           'showCameraB': _showCameraB,
+          'mirrorA': _mirrorA,
           'recordingOutput': _recordingOutput.name,
         },
       );
@@ -186,6 +230,8 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       final old = _player;
       final oldSeeker = _seeker;
       next.addListener(_onPlayerChanged);
+      _eggPlaybackActive = false;
+      EasterEggService.instance.engine.clearPause();
       _restCountdownGeneration++;
       setState(() {
         _source = source;
@@ -202,6 +248,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
         _loopStartEight = (data['loopStartEight'] as int?) ?? 1;
         _loopEndEight = (data['loopEndEight'] as int?) ?? 1;
         _showCameraB = (data['showCameraB'] as bool?) ?? false;
+        _mirrorA = (data['mirrorA'] as bool?) ?? false;
         _recording = false;
         _recordingOutput = _recordingOutputFromName(
           data['recordingOutput'] as String?,
@@ -232,6 +279,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
     if (!mounted || player == null || !player.value.isInitialized) return;
     final nextPosition = player.value.position;
     if (nextPosition != _position) setState(() => _position = nextPosition);
+    _sampleEggs();
     _handleLoop(nextPosition);
   }
 
@@ -250,6 +298,9 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
     );
     if (decision.type == LoopActionType.none) return;
     _handlingLoop = true;
+    if (EasterEggService.instance.learningVisible && _eggPlaybackActive) {
+      EasterEggService.instance.engine.completedLoop('learning', _eggSegment);
+    }
     final player = _player;
     try {
       if (decision.type == LoopActionType.pauseThenRestart) {
@@ -295,6 +346,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
   }
 
   Future<void> _setRate(PlaybackRate rate) async {
+    EasterEggService.instance.engine.rate(_rate.value, rate.value);
     setState(() => _rate = rate);
     await _player?.setPlaybackSpeed(rate.value);
   }
@@ -350,6 +402,9 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       endEight: safeEnd,
       mediaDuration: _duration,
     );
+    if (range.start != _loop.start || range.end != _loop.end) {
+      EasterEggService.instance.count('sculpt', 11, rapid: true);
+    }
     setState(() {
       _loopStartEight = safeStart;
       _loopEndEight = safeEnd;
@@ -361,6 +416,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
   Future<void> _handleRecording(XFile file) async {
     try {
       final path = await _recordedVideoStore.persist(file);
+      EasterEggService.instance.exportCompleted();
       if (!mounted) return;
       final message = _recordingOutput == RecordingOutput.dancerOnly
           ? '已儲存 B：$path'
@@ -378,6 +434,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
 
   @override
   void dispose() {
+    _eggTimer?.cancel();
     _restCountdownGeneration++;
     _seeker?.dispose();
     _player?.removeListener(_onPlayerChanged);
@@ -388,6 +445,8 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
   @override
   Widget build(BuildContext context) {
     final player = _player;
+    final english =
+        EmotionBackmailService.language.value == AppLanguage.english;
     if (player == null) {
       return _EmptyLearningState(
         onPickVideo: _pickVideo,
@@ -406,6 +465,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                   Positioned.fill(
                     child: _LearningCanvas(
                       player: player,
+                      mirrorA: _mirrorA,
                       showCameraB: _showCameraB,
                       recording: _recording,
                       onRecordingChanged: (file) {
@@ -419,12 +479,25 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton.filledTonal(
+                          tooltip: english
+                              ? (_mirrorA ? 'Unmirror A' : 'Mirror A')
+                              : (_mirrorA ? '取消 A 鏡像' : '鏡像翻轉 A'),
+                          isSelected: _mirrorA,
+                          onPressed: () {
+                            EasterEggService.instance.mirror();
+                            setState(() => _mirrorA = !_mirrorA);
+                          },
+                          icon: const Icon(Icons.flip),
+                        ),
+                        const SizedBox(width: 8),
                         FilledButton.tonalIcon(
                           onPressed: _recording
                               ? null
-                              : () => setState(
-                                  () => _showCameraB = !_showCameraB,
-                                ),
+                              : () {
+                                  EasterEggService.instance.count('camera', 11);
+                                  setState(() => _showCameraB = !_showCameraB);
+                                },
                           icon: Icon(
                             _showCameraB
                                 ? Icons.visibility_off_outlined
@@ -523,8 +596,22 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                 onPickVideo: _pickVideo,
                 onRateChanged: _setRate,
                 onLoopChanged: _onLoopChanged,
+                onLoopChangeStart: (_) => _loopEditStart = _loop,
+                onLoopChangeEnd: (_) {
+                  final start = _loopEditStart;
+                  if (start != null &&
+                      (start.start != _loop.start || start.end != _loop.end)) {
+                    EasterEggService.instance.count('sculpt', 11, rapid: true);
+                  }
+                  _loopEditStart = null;
+                },
                 onEightRangeChanged: _selectEightRange,
-                onRepeatChanged: (value) => setState(() => _repeat = value),
+                onRepeatChanged: (value) {
+                  if (value != _repeat) {
+                    EasterEggService.instance.count('repeat', 11);
+                  }
+                  setState(() => _repeat = value);
+                },
                 onSeekToLoopStart: () => _player?.seekTo(_loop.start),
                 onRestChanged: (value) => setState(() => _rest = value),
                 onMarkEight: _markEightBoundary,
@@ -548,12 +635,14 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
 final class _LearningCanvas extends StatelessWidget {
   const _LearningCanvas({
     required this.player,
+    required this.mirrorA,
     required this.showCameraB,
     required this.recording,
     required this.onRecordingChanged,
   });
 
   final VideoPlayerController player;
+  final bool mirrorA;
   final bool showCameraB;
   final bool recording;
   final ValueChanged<XFile?> onRecordingChanged;
@@ -566,7 +655,7 @@ final class _LearningCanvas extends StatelessWidget {
         child: Center(
           child: AspectRatio(
             aspectRatio: player.value.aspectRatio,
-            child: VideoPlayer(player),
+            child: Transform.flip(flipX: mirrorA, child: VideoPlayer(player)),
           ),
         ),
       );
@@ -729,6 +818,8 @@ final class _SettingsPanel extends StatelessWidget {
     required this.onPickVideo,
     required this.onRateChanged,
     required this.onLoopChanged,
+    required this.onLoopChangeStart,
+    required this.onLoopChangeEnd,
     required this.onEightRangeChanged,
     required this.onRepeatChanged,
     required this.onSeekToLoopStart,
@@ -751,6 +842,8 @@ final class _SettingsPanel extends StatelessWidget {
   final VoidCallback onPickVideo;
   final ValueChanged<PlaybackRate> onRateChanged;
   final ValueChanged<RangeValues> onLoopChanged;
+  final ValueChanged<RangeValues> onLoopChangeStart;
+  final ValueChanged<RangeValues> onLoopChangeEnd;
   final void Function(int startEight, int endEight) onEightRangeChanged;
   final ValueChanged<bool> onRepeatChanged;
   final VoidCallback onSeekToLoopStart;
@@ -826,6 +919,8 @@ final class _SettingsPanel extends StatelessWidget {
               formatDuration(loop.end),
             ),
             onChanged: onLoopChanged,
+            onChangeStart: onLoopChangeStart,
+            onChangeEnd: onLoopChangeEnd,
           ),
           Text('每輪休息 ${rest.inSeconds} 秒'),
           Slider(

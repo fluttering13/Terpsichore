@@ -1,7 +1,7 @@
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/material.dart';
@@ -44,6 +44,16 @@ final class AbAnalysisScreen extends StatefulWidget {
 }
 
 enum _ComparisonLayout { vertical, horizontal }
+
+enum _BAlignmentMode {
+  automatic('時間軸與倍速都搜尋', '搜尋 B 整部影片的起點與倍速（0.1–4x），終點設為影片結尾。'),
+  fixedTimeline('固定時間軸，只搜尋倍速', '保留 B 目前的裁切起點與終點，只搜尋倍速（0.1–4x）。'),
+  fixedRate('固定倍速，只搜尋時間軸', '保留 B 目前的倍速，搜尋整部影片的起點，終點設為影片結尾。');
+
+  const _BAlignmentMode(this.label, this.description);
+  final String label;
+  final String description;
+}
 
 final class _TrackState {
   _TrackState({
@@ -109,11 +119,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     }
   }
 
-  double _searchFraction = .1;
+  _BAlignmentMode _bAlignmentMode = _BAlignmentMode.automatic;
   double _smoothWindow = .5;
-  bool _smoothEnabled = true;
   int _samplingFps = 0; // 0 preserves adaptive 6–12 FPS.
-  static const _fpsOptions = [0, 6, 8, 12, 15, 24, 30];
+  static const _fpsOptions = [0, 1, 2, 3, 4, 5, 6, 8, 12, 15, 24, 30];
   bool _settingsReady = false;
   TimeRange? _beforeAiTrim;
   PlaybackRate? _beforeAiRate;
@@ -131,24 +140,20 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   );
 
   Future<void> _loadAiSettings() async {
-    var fraction = .1;
     try {
       final file = await _aiSettingsFile();
       if (await file.exists()) {
         final data = jsonDecode(await file.readAsString()) as Map;
-        final value = data['searchFraction'];
+        _bAlignmentMode = _BAlignmentMode.values.firstWhere(
+          (mode) => mode.name == data['bAlignmentMode'],
+          orElse: () => _BAlignmentMode.automatic,
+        );
         final window = data['smoothWindow'];
         final fps = data['samplingFps'];
         // Ignore the retired multiPersonFiltering preference: tracking is always on.
         if (fps is int && _fpsOptions.contains(fps)) _samplingFps = fps;
-        if (window is num && window.isFinite) {
-          _smoothWindow = window.toDouble().clamp(0, 1);
-        }
-        _smoothEnabled = data['smoothEnabled'] is bool
-            ? data['smoothEnabled'] as bool
-            : true;
-        if (value is num && value.isFinite) {
-          fraction = value.toDouble().clamp(0.0, .5);
+        if (window is num && window.isFinite && window >= 0) {
+          _smoothWindow = window.toDouble();
         }
       }
     } catch (_) {
@@ -156,18 +161,16 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     }
     if (mounted) {
       setState(() {
-        _searchFraction = fraction;
         _settingsReady = true;
       });
     }
   }
 
   Future<void> _showAiSettings() async {
-    var percent = (_searchFraction * 100).roundToDouble();
+    var mode = _bAlignmentMode;
     double? window = _smoothWindow;
-    var enabled = _smoothEnabled;
     var fps = _samplingFps;
-    final value = await showDialog<(double, double, bool, int)>(
+    final value = await showDialog<(_BAlignmentMode, double, int)>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, update) => AlertDialog(
@@ -196,13 +199,6 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
               const Text(
                 '固定 FPS 越低分析越快，但可能漏掉快速動作。只影響 AI 採樣，不改變影片播放或輸出 FPS。修改後需重新分析。',
               ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('平滑骨架預覽'),
-                subtitle: const Text('Median 平滑用於骨架與 AI 對齊；關閉後重新分析可比較原始結果。'),
-                value: enabled,
-                onChanged: (v) => update(() => enabled = v),
-              ),
               TextFormField(
                 initialValue: _smoothWindow.toString(),
                 keyboardType: const TextInputType.numberWithOptions(
@@ -210,31 +206,30 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                 ),
                 decoration: InputDecoration(
                   labelText: '骨架平滑窗口（秒）',
-                  helperText: '建議 0.5 秒；0–1 秒，前後各半。信心門檻 0.15，不補缺點。',
-                  errorText: window == null ? '請輸入 0 到 1 的有效秒數' : null,
+                  helperText:
+                      '建議從 0.5 秒開始，可輸入任意非負秒數，前後各半。越高越能減少抖動，但可能抹平快速動作；越低越保留動作細節，也較容易抖動。0 秒停用平滑。採樣 FPS 較低時，小窗口可能沒有足夠影格可平滑。',
+                  helperMaxLines: 6,
+                  errorText: window == null ? '請輸入大於或等於 0 的有效秒數' : null,
                 ),
                 onChanged: (text) => update(() {
                   final n = double.tryParse(text.replaceAll(',', '.'));
-                  window = n != null && n.isFinite && n >= 0 && n <= 1
-                      ? n
-                      : null;
+                  window = n != null && n.isFinite && n >= 0 ? n : null;
                 }),
               ),
-              Text('B 起點搜尋範圍：±${percent.round()}%'),
-              Slider(
-                value: percent,
-                min: 0,
-                max: 50,
-                divisions: 50,
-                label: '${percent.round()}%',
-                onChanged: (v) => update(() => percent = v),
+              DropdownButtonFormField<_BAlignmentMode>(
+                initialValue: mode,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'B 對齊模式（A 始終固定）'),
+                items: _BAlignmentMode.values
+                    .map(
+                      (m) => DropdownMenuItem(value: m, child: Text(m.label)),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) update(() => mode = v);
+                },
               ),
-              const Text(
-                '依 B 選定區間長度計算起點搜尋範圍。0% 固定起點；終點保留。固定 A，獨立搜尋 B 速度 0.1–4x，允許尾端不同時播完。',
-              ),
-              Text(
-                '例：B 為 3 秒時，起點可調整 ±${(3 * percent / 100).toStringAsFixed(2)} 秒。',
-              ),
+              Text('A 的裁切與倍速始終保持不變。${mode.description}允許尾端不同時播完。'),
             ],
           ),
           actions: [
@@ -245,12 +240,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
             FilledButton(
               onPressed: window == null
                   ? null
-                  : () => Navigator.pop(context, (
-                      percent / 100,
-                      window!,
-                      enabled,
-                      fps,
-                    )),
+                  : () => Navigator.pop(context, (mode, window!, fps)),
               child: const Text('儲存'),
             ),
           ],
@@ -263,20 +253,18 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       await file.parent.create(recursive: true);
       await file.writeAsString(
         jsonEncode({
-          'searchFraction': value.$1,
+          'bAlignmentMode': value.$1.name,
           'smoothWindow': value.$2,
-          'smoothEnabled': value.$3,
-          'samplingFps': value.$4,
+          'samplingFps': value.$3,
         }),
         flush: true,
       );
       if (mounted) {
         setState(() {
-          final fpsChanged = _samplingFps != value.$4;
-          _samplingFps = value.$4;
-          _searchFraction = value.$1;
+          final fpsChanged = _samplingFps != value.$3;
+          _samplingFps = value.$3;
+          _bAlignmentMode = value.$1;
           _smoothWindow = value.$2;
-          _smoothEnabled = value.$3;
           for (final track in [_trackA, _trackB]) {
             if (track == null) continue;
             if (fpsChanged) {
@@ -285,7 +273,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
               track.poseStart = null;
               track.poseEnd = null;
             }
-            track.useProcessedPose = _smoothEnabled && _smoothWindow > 0;
+            track.useProcessedPose = _smoothWindow > 0;
             if (track.pose != null) {
               track.processedPose = medianPoseSequence(
                 track.pose!,
@@ -304,6 +292,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final track = isA ? _trackA : _trackB;
     if (track == null) return;
     setState(() => track.showPose = !track.showPose);
+    EasterEggService.instance.count('hades', 11);
+    if (track.showPose) {
+      EasterEggService.instance.engine.trigger('bones', oncePerDay: true);
+    }
     if (track.showPose && track.pose == null) {
       _showProjectMessage('請按「AI 對齊」一次分析 A、B。');
     }
@@ -311,26 +303,27 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
 
   Future<void> _runPoseAnalysis() async {
     if (_poseAnalyzer != null || _exporting || !_settingsReady) return;
+    final mode = _bAlignmentMode;
+    final lockTimeline = mode == _BAlignmentMode.fixedTimeline;
+    final lockRate = mode == _BAlignmentMode.fixedRate;
     final a = _trackA;
     final b = _trackB;
     if (a == null || b == null) return;
     final tracks = [a, b];
-    final anchorStart = b.trim.start.inMicroseconds / 1e6;
-    final anchorEnd = b.trim.end.inMicroseconds / 1e6;
-    final radius = (anchorEnd - anchorStart) * _searchFraction;
-    final searchStart = math.max(0.0, anchorStart - radius);
-    final searchEnd = math.min(
-      b.player.value.duration.inMicroseconds / 1e6,
-      anchorEnd + radius,
-    );
-    if (tracks.any(
-          (t) =>
-              t.trim.duration.inMilliseconds > 60000 ||
-              t.trim.duration.inMilliseconds < 1000,
-        ) ||
+    final originalTrim = b.trim;
+    final originalRate = b.rate;
+    final searchStart = lockTimeline
+        ? originalTrim.start.inMicroseconds / 1e6
+        : 0.0;
+    final anchorEnd =
+        (lockTimeline ? originalTrim.end : b.player.value.duration)
+            .inMicroseconds /
+        1e6;
+    final searchEnd = anchorEnd;
+    if (a.trim.duration.inMilliseconds < 1000 ||
         a.trim.duration.inMilliseconds > 30000 ||
-        searchEnd - searchStart > 60) {
-      _showProjectMessage('請先裁切：A 為 1–30 秒，B 至少 1 秒，含搜尋邊界最多 60 秒。');
+        searchEnd - searchStart < 1) {
+      _showProjectMessage('請先裁切：A 為 1–30 秒；B 的分析區間至少 1 秒。');
       return;
     }
     final analyzer = MoveNetAnalyzer.forApp(
@@ -365,7 +358,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       builder: (context) => PopScope(
         canPop: false,
         child: AlertDialog(
-          title: const Text('AI 對齊 · 固定 A'),
+          title: Text('AI 對齊 · ${mode.label}'),
           content: ValueListenableBuilder<String>(
             valueListenable: status,
             builder: (_, value, child) => Column(
@@ -425,12 +418,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
             if (!mounted || analyzer.cancelled) throw PoseAnalysisCancelled();
             track.pose = sequence;
             track.processedPose = medianPoseSequence(sequence, _smoothWindow);
-            track.useProcessedPose = _smoothEnabled && _smoothWindow > 0;
+            track.useProcessedPose = _smoothWindow > 0;
             track.poseStart = start;
             track.poseEnd = end;
           }
           if (!mounted || analyzer.cancelled) throw PoseAnalysisCancelled();
-          setState(() => track.showPose = true);
           progress[index] = 1;
         } catch (error) {
           if (error is! PoseAnalysisCancelled) failure ??= error;
@@ -443,20 +435,20 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       // or disposing the shared progress notifier.
       await runParallelPoseJobs(() => analyzeTrack(0), () => analyzeTrack(1));
       {
-        status.value = '正在搜尋 B 的起點與速度…\nA 的裁切與速度保持固定';
+        status.value = 'B：${mode.label}…\nA 的裁切與倍速保持固定';
         result = await compute(
           solveThunderAlignment,
           PoseAlignmentRequest(
-            a: _smoothEnabled ? a.processedPose! : a.pose!,
-            b: _smoothEnabled ? b.processedPose! : b.pose!,
+            a: a.processedPose!,
+            b: b.processedPose!,
             aStart: a.trim.start.inMicroseconds / 1e6,
             aEnd: a.trim.end.inMicroseconds / 1e6,
             aRate: a.rate.value,
             bStart: searchStart,
             bEnd: searchEnd,
-            bAnchorStart: anchorStart,
-            bAnchorEnd: anchorEnd,
-            searchFraction: _searchFraction,
+            searchFullRange: true,
+            fixedBStart: lockTimeline ? searchStart : null,
+            fixedBRate: lockRate ? originalRate.value : null,
             mirrorA: _mirrorA,
             mirrorB: _mirrorB,
           ),
@@ -480,7 +472,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       return;
     }
     if (result == null) {
-      _showProjectMessage('有效骨架或重疊區間不足，無法建議對齊。請檢查骨架或調整 B 搜尋比例。A、B 參數未變更。');
+      _showProjectMessage('已嘗試放寬條件，仍找不到可比較的骨架。請檢查骨架或調整固定影片的裁切區間。A、B 參數未變更。');
       return;
     }
     final suggestion = result;
@@ -490,10 +482,12 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         title: const Text('AI 對齊建議'),
         content: Text(
           'A 維持目前設定\n'
-          'B 起點：${suggestion.bStart.toStringAsFixed(2)} 秒\n'
-          'B 終點：${anchorEnd.toStringAsFixed(2)} 秒（保留）\n'
-          'B 速度：${suggestion.bRate.toStringAsFixed(3)}x\n'
+          'B：${mode.label}\n'
+          'B 起點：${suggestion.bStart.toStringAsFixed(2)} 秒${lockTimeline ? '（保留）' : ''}\n'
+          'B 終點：${anchorEnd.toStringAsFixed(2)} 秒（${lockTimeline ? '保留' : '影片結尾'}）\n'
+          'B 倍速：${suggestion.bRate.toStringAsFixed(3)}x${lockRate ? '（保留）' : ''}\n'
           '有效骨架：${(suggestion.coverage * 100).round()}%\n'
+          '${suggestion.bestEffort ? '資料或重疊不足，這是盡力估計的結果，可套用預覽後微調。\n' : ''}'
           '姿勢差異：${suggestion.error.toStringAsFixed(3)}（越低越相似）\n\n'
           '${suggestion.ambiguous ? '有其他相近答案，可能是重複動作，請特別檢查預覽。\n' : ''}'
           '人物交錯仍可能辨識錯人，請檢查骨架。尾端不一定同時播完。套用後可共同播放預覽，也可以復原。',
@@ -525,11 +519,15 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         _beforeAiTrack = b;
         _beforeAiTrim = oldTrim;
         _beforeAiRate = oldRate;
-        b.rate = PlaybackRate.ab(suggestion.bRate);
-        b.trim = TimeRange(
-          start: Duration(microseconds: (suggestion.bStart * 1e6).round()),
-          end: Duration(microseconds: (anchorEnd * 1e6).round()),
-        );
+        b.rate = lockRate ? originalRate : PlaybackRate.ab(suggestion.bRate);
+        b.trim = lockTimeline
+            ? originalTrim
+            : TimeRange(
+                start: Duration(
+                  microseconds: (suggestion.bStart * 1e6).round(),
+                ),
+                end: Duration(microseconds: (anchorEnd * 1e6).round()),
+              );
         _alignmentLabel =
             'AI：B ${suggestion.bStart.toStringAsFixed(2)}s · ${suggestion.bRate.toStringAsFixed(3)}x';
       });
@@ -541,8 +539,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   }
 
   Future<void> _undoAlignment() async {
-    final b = _trackB;
-    if (b == null || !identical(b, _beforeAiTrack) || _beforeAiTrim == null) {
+    final b = _beforeAiTrack;
+    if (b == null ||
+        (!identical(b, _trackA) && !identical(b, _trackB)) ||
+        _beforeAiTrim == null) {
       return;
     }
     await _beginCommonSeek(0);
@@ -607,15 +607,74 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       _progress = 0;
       _commonPlaying = false;
     });
+    await _checkSameVideo();
     player.addListener(() => _onTrackTick(player, isA));
     old?.seeker.dispose();
     await old?.player.dispose();
+  }
+
+  Future<void> _checkSameVideo() async {
+    final a = _trackA?.source.path;
+    final b = _trackB?.source.path;
+    if (a == null || b == null) return;
+    // Pickers may copy the same source into different cache paths.
+    try {
+      bool same = a == b;
+      if (!same) {
+        final fa = File(a);
+        final fb = File(b);
+        if (await fa.length() == await fb.length()) {
+          final ra = await fa.open();
+          try {
+            final rb = await fb.open();
+            try {
+              same = true;
+              while (true) {
+                final ca = await ra.read(65536);
+                final cb = await rb.read(65536);
+                if (ca.length != cb.length) {
+                  same = false;
+                  break;
+                }
+                for (var i = 0; i < ca.length; i++) {
+                  if (ca[i] != cb[i]) {
+                    same = false;
+                    break;
+                  }
+                }
+                if (!same || ca.isEmpty) break;
+              }
+            } finally {
+              await rb.close();
+            }
+          } finally {
+            await ra.close();
+          }
+        }
+      }
+      if (mounted &&
+          _trackA?.source.path == a &&
+          _trackB?.source.path == b &&
+          same) {
+        EasterEggService.instance.engine.trigger('duel');
+      }
+    } catch (_) {
+      /* Unavailable media should not interrupt playback. */
+    }
   }
 
   void _onTrackTick(VideoPlayerController player, bool isA) {
     if (!mounted) return;
     final track = isA ? _trackA : _trackB;
     if (track == null || !identical(track.player, player)) return;
+    final eggs = EasterEggService.instance;
+    if (eggs.foreground && eggs.page == 2 && !eggs.covered) {
+      eggs.engine.practice(
+        'ab',
+        (_trackA?.player.value.isPlaying ?? false) ||
+            (_trackB?.player.value.isPlaying ?? false),
+      );
+    }
 
     if (_commonPlaying) {
       if (player.value.position >= _commonSourceEnd(track)) {
@@ -1206,6 +1265,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
       if (result case AnalysisExported(:final path)) {
+        EasterEggService.instance.exportCompleted();
         final galleryResult = await _gallery.save(path, folder: _exportFolder);
         if (!mounted) return;
         if (galleryResult case AnalysisGallerySaveFailed(:final reason)) {
@@ -1309,7 +1369,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         onTrimChanged: (values) => _changeTrim(true, values),
         onRateChanged: (rate) => _changeRate(true, rate),
         mirrored: _mirrorA,
-        onToggleMirror: () => setState(() => _mirrorA = !_mirrorA),
+        onToggleMirror: () {
+          EasterEggService.instance.mirror(ab: true);
+          setState(() => _mirrorA = !_mirrorA);
+        },
         verticalControls: effectiveLayout == _ComparisonLayout.vertical,
       ),
       _TrackCard(
@@ -1321,7 +1384,10 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         onTrimChanged: (values) => _changeTrim(false, values),
         onRateChanged: (rate) => _changeRate(false, rate),
         mirrored: _mirrorB,
-        onToggleMirror: () => setState(() => _mirrorB = !_mirrorB),
+        onToggleMirror: () {
+          EasterEggService.instance.mirror(ab: true);
+          setState(() => _mirrorB = !_mirrorB);
+        },
         verticalControls: effectiveLayout == _ComparisonLayout.vertical,
       ),
     ];
@@ -1373,7 +1439,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                     icon: const Icon(Icons.tune, size: 18),
                   ),
                   if (_alignmentLabel != null &&
-                      identical(_beforeAiTrack, _trackB)) ...[
+                      (identical(_beforeAiTrack, _trackA) ||
+                          identical(_beforeAiTrack, _trackB))) ...[
                     Expanded(
                       child: Text(
                         _alignmentLabel!,

@@ -37,6 +37,7 @@ flutter:
   uses-material-design: true
   assets:
     - asset/logo.png
+    - asset/logo2.png
     - asset/models/movenet-thunder-int8.tflite
     - asset/models/MOVENET_SOURCES.txt
 

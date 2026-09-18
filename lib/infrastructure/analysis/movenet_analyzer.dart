@@ -94,10 +94,9 @@ final class MoveNetAnalyzer {
     if (![start, end, aspectRatio].every((v) => v.isFinite) ||
         start < 0 ||
         end <= start ||
-        end - start > 60 ||
         aspectRatio <= 0 ||
-        (samplingFps != null && (samplingFps < 6 || samplingFps > 30))) {
-      throw ArgumentError('請選擇不超過 60 秒的分析片段');
+        (samplingFps != null && (samplingFps < 1 || samplingFps > 30))) {
+      throw ArgumentError('請選擇有效的分析片段與 1–30 FPS 採樣率');
     }
     metrics.clear();
     nativeIntervals.clear();
@@ -213,7 +212,7 @@ final class MoveNetAnalyzer {
         }
       }
       _record('first_pass_us', total.elapsedMicroseconds);
-      return PoseSequence(frames, aspectRatio);
+      return PoseSequence(frames, aspectRatio, samplingFps: samplingFps);
     } finally {
       for (final id in _decoders.toList()) {
         await FFmpegKit.cancel(id);

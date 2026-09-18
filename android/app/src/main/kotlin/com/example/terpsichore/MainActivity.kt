@@ -52,8 +52,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "testNotification" -> {
                         requestNotificationPermissionIfNeeded()
-                        EmotionBackmailManager.scheduleTestNotification(this)
-                        result.success(null)
+                        result.success(EmotionBackmailManager.onTestNotificationPressed(this))
                     }
                     "updateNotificationSettings" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: true

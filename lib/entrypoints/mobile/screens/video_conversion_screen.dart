@@ -1,3 +1,4 @@
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -127,6 +128,7 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
       if (!mounted) return;
       switch (result) {
         case VideoConversionSucceeded(:final path):
+          EasterEggService.instance.exportCompleted();
           final outputBytes = await File(path).length();
           if (!mounted) return;
           setState(() {

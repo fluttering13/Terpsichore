@@ -17,7 +17,7 @@ void main() {
     }
   });
   test('invalid FPS is rejected before loading native resources', () async {
-    for (final fps in [-1, 0, 5, 31, 100]) {
+    for (final fps in [-1, 0, 31, 100]) {
       await expectLater(
         MoveNetAnalyzer().analyze(
           path: '',

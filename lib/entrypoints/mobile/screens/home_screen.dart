@@ -1,4 +1,7 @@
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:saver_gallery/saver_gallery.dart';
 import 'package:terpsichore/infrastructure/engagement/emotion_backmail_service.dart';
 import 'notification_settings_screen.dart';
 
@@ -76,7 +79,74 @@ final class _BrandCover extends StatelessWidget {
               ),
               child: ColoredBox(
                 color: const Color(0xfffffbf5),
-                child: Image.asset('asset/logo.png', fit: BoxFit.contain),
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: EmotionBackmailService.onlineStreak,
+                  builder: (context, days, _) => GestureDetector(
+                    onTap: () => EasterEggService.instance.count(
+                      'logo',
+                      10,
+                      rapid: true,
+                    ),
+                    onLongPress: (days ?? 0) < 100
+                        ? null
+                        : () async {
+                            EasterEggService.instance.engine.trigger('secret');
+                            final save = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                content: const Text(
+                                  '一百天。連 Moirai 都替你記下來了。這份紀錄，本女神准你帶走。',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('關閉'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: const Text('儲存紀念圖'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (save != true) return;
+                            try {
+                              final data = await rootBundle.load(
+                                'asset/logo2.png',
+                              );
+                              final result = await SaverGallery.saveImage(
+                                data.buffer.asUint8List(
+                                  data.offsetInBytes,
+                                  data.lengthInBytes,
+                                ),
+                                fileName: 'Terpsichore-100-days.png',
+                                skipIfExists: false,
+                              );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    result.isSuccess
+                                        ? '百日紀念圖已儲存'
+                                        : '儲存失敗，請確認相簿權限',
+                                  ),
+                                ),
+                              );
+                            } catch (_) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('無法儲存百日紀念圖')),
+                              );
+                            }
+                          },
+                    child: Image.asset(
+                      (days ?? 0) >= 100 ? 'asset/logo2.png' : 'asset/logo.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

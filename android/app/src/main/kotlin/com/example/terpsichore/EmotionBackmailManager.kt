@@ -11,6 +11,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.DrawableRes
 import java.time.LocalDate
 import java.time.LocalTime
@@ -38,6 +41,9 @@ object EmotionBackmailManager {
     private const val KEY_REMINDER_MINUTE = "reminder_minute"
     private const val KEY_LANGUAGE = "language"
     private const val KEY_LAST_REMINDER_DAY = "last_reminder_day"
+    private const val KEY_TEST_TAP_COUNT = "test_notification_tap_count"
+    private val testHandler = Handler(Looper.getMainLooper())
+    private var nextEasterEggAt = 0L
 
     private const val CHANNEL_ID = "emotion_backmail"
     private const val NOTIFICATION_ID = 7319
@@ -611,6 +617,33 @@ object EmotionBackmailManager {
             )
         }
         prefs.edit().putString(KEY_CURRENT_ALIAS, desiredAlias).apply()
+    }
+
+    fun onTestNotificationPressed(context: Context): Boolean {
+        val app = context.applicationContext
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val count = TestNotificationEasterEgg.nextCount(prefs.getInt(KEY_TEST_TAP_COUNT, 0))
+        prefs.edit().putInt(KEY_TEST_TAP_COUNT, count).apply()
+        if (count != 0) {
+            val sequenceActive = SystemClock.uptimeMillis() < nextEasterEggAt
+            if (!sequenceActive) scheduleTestNotification(app)
+            return sequenceActive
+        }
+
+        // Replace the pending ordinary test; each line gets its own notification.
+        val pending = PendingIntent.getBroadcast(app, 7321,
+            Intent(app, EmotionAlarmReceiver::class.java).putExtra("test_notification", true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        app.getSystemService(AlarmManager::class.java).cancel(pending)
+        val start = max(SystemClock.uptimeMillis(), nextEasterEggAt)
+        val messages = TestNotificationEasterEgg.messagesFor(prefs.getString(KEY_LANGUAGE, "zh-TW"))
+        messages.forEachIndexed { index, body ->
+            testHandler.postAtTime({
+                postNotification(app, EmotionMessage("HappyIcon", "Terpsichore", body), 7330 + index)
+            }, start + index * TestNotificationEasterEgg.INTERVAL_MILLIS)
+        }
+        nextEasterEggAt = start + messages.size * TestNotificationEasterEgg.INTERVAL_MILLIS
+        return true
     }
 
     fun scheduleTestNotification(context: Context) {

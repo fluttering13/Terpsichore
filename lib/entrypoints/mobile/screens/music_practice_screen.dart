@@ -1,3 +1,4 @@
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -73,6 +74,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
     super.initState();
     _positionSubscription = _player.positionStream.listen(_onPosition);
     _stateSubscription = _player.playerStateStream.listen((_) {
+      _sampleEggs();
       if (mounted) setState(() {});
     });
   }
@@ -221,7 +223,24 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
     }
   }
 
+  void _sampleEggs() {
+    final eggs = EasterEggService.instance;
+    if (!eggs.foreground || eggs.page != 3 || eggs.covered) return;
+    eggs.engine.segment(
+      'music',
+      '${_prepared?.originalWavPath}:${_loop.start}:${_loop.end}',
+    );
+    eggs.engine.practice(
+      'music',
+      (_player.playing &&
+              _player.processingState != ProcessingState.completed) ||
+          _handlingLoop ||
+          (_repeat && _player.playing && _player.position >= _loop.end),
+    );
+  }
+
   void _onPosition(Duration position) {
+    _sampleEggs();
     if (!mounted || !_practicing) return;
     if (position != _position) setState(() => _position = position);
     unawaited(_handleLoop(position));
@@ -243,6 +262,13 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
     );
     if (decision.action == MusicLoopAction.none) return;
     _handlingLoop = true;
+    final eggs = EasterEggService.instance;
+    if (eggs.foreground && eggs.page == 3 && !eggs.covered && _player.playing) {
+      eggs.engine.completedLoop(
+        'music',
+        '${_prepared?.originalWavPath}:${_loop.start}:${_loop.end}',
+      );
+    }
     try {
       if (decision.action == MusicLoopAction.pauseThenRestart) {
         await _player.pause();

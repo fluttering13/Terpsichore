@@ -87,8 +87,52 @@ void main() {
       expect(result, isNotNull);
       expect(result!.bStart, 0);
       expect(result.bRate, closeTo(1, .02));
+      expect(result.bestEffort, isFalse);
     },
   );
+  test('sparse evidence still provides a best effort proposal', () {
+    final full = motion(3, 1);
+    final sparse = PoseSequence(
+      full.frames.where((f) => f.seconds <= .5).toList(),
+      1,
+    );
+    final result = solveThunderAlignment(
+      PoseAlignmentRequest(
+        a: sparse,
+        b: full,
+        aStart: 0,
+        aEnd: 3,
+        aRate: 1,
+        bStart: 0,
+        bEnd: 3,
+        searchFraction: 0,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bestEffort, isTrue);
+    expect(result.coverage, inExclusiveRange(0, .5));
+    expect(result.bRate, closeTo(1, .03));
+    expect(result.error.isFinite, isTrue);
+  });
+  test('short overlap is estimated when no full overlap is possible', () {
+    final result = solveThunderAlignment(
+      PoseAlignmentRequest(
+        a: motion(3, 1),
+        b: motion(.15, 1),
+        aStart: 0,
+        aEnd: 3,
+        aRate: 1,
+        bStart: 0,
+        bEnd: .15,
+        searchFraction: 0,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bestEffort, isTrue);
+    expect(result.coverage, inExclusiveRange(0, .8));
+    expect(result.bStart, 0);
+    expect(result.bRate, inInclusiveRange(.1, 4));
+  });
   test('missing evidence and invalid ranges yield no proposal', () {
     final empty = PoseSequence([frame(0, 0, score: 0)], 1);
     expect(
@@ -119,5 +163,165 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('full search finds motion beyond the old anchor range', () {
+    final reference = motion(3, 1);
+    final shifted = PoseSequence(
+      reference.frames.map((f) => PoseFrame(f.seconds + 6, f.points)).toList(),
+      1,
+    );
+    final result = solveThunderAlignment(
+      PoseAlignmentRequest(
+        a: reference,
+        b: shifted,
+        aStart: 0,
+        aEnd: 3,
+        aRate: 1,
+        bStart: 0,
+        bEnd: 12,
+        bAnchorStart: 0,
+        bAnchorEnd: 2,
+        searchFullRange: true,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bStart, closeTo(6, .05));
+    expect(result.bRate, closeTo(1, .02));
+    expect(result.bestEffort, isFalse);
+  });
+
+  test(
+    '1 to 5 FPS can interpolate and align without treating cadence as gaps',
+    () {
+      for (final fps in [1, 2, 3, 4, 5]) {
+        final source = motion(3, 1);
+        final sequence = PoseSequence(
+          List.generate(3 * fps + 1, (i) {
+            final t = i / fps;
+            return PoseFrame(t, source.at(t)!.points);
+          }),
+          1,
+          samplingFps: fps,
+        );
+        expect(sequence.at(.5 / fps), isNotNull);
+        final processed = medianPoseSequence(sequence, 0);
+        expect(processed.samplingFps, fps);
+        final result = solveThunderAlignment(
+          PoseAlignmentRequest(
+            a: processed,
+            b: sequence,
+            aStart: 0,
+            aEnd: 3,
+            aRate: 1,
+            bStart: 0,
+            bEnd: 3,
+            searchFraction: 0,
+          ),
+        );
+        expect(result, isNotNull);
+        expect(result!.bestEffort, isFalse);
+        expect(result.bRate, closeTo(1, .02));
+      }
+      final missing = PoseSequence(
+        [frame(0, .1), frame(2, .2)],
+        1,
+        samplingFps: 1,
+      );
+      expect(missing.at(1), isNull);
+    },
+  );
+
+  test('smoothing windows above one second are not clamped', () {
+    final sequence = PoseSequence(
+      List.generate(31, (i) => frame(i / 10, i >= 11 && i <= 19 ? .9 : .1)),
+      1,
+    );
+    expect(medianPoseSequence(sequence, 1).frames[15].points[0].x, .9);
+    expect(medianPoseSequence(sequence, 3).frames[15].points[0].x, .1);
+    expect(medianPoseSequence(sequence, 0).frames[15].points[0].x, .9);
+  });
+
+  test('locked B timeline preserves an off-grid start while finding speed', () {
+    const start = 2.137;
+    final target = motion(4.5, 1.5);
+    final result = solveThunderAlignment(
+      PoseAlignmentRequest(
+        a: motion(3, 1),
+        b: PoseSequence(
+          target.frames
+              .map((f) => PoseFrame(f.seconds + start, f.points))
+              .toList(),
+          1,
+        ),
+        aStart: 0,
+        aEnd: 3,
+        aRate: 1,
+        bStart: start,
+        bEnd: start + 4.5,
+        fixedBStart: start,
+        searchFullRange: true,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bStart, start);
+    expect(result.bRate, closeTo(1.5, .03));
+    expect(result.bestEffort, isFalse);
+  });
+
+  test('locked B speed preserves an off-grid rate while finding start', () {
+    const rate = 1.237;
+    final target = motion(4, rate);
+    final result = solveThunderAlignment(
+      PoseAlignmentRequest(
+        a: motion(3, 1),
+        b: PoseSequence(
+          target.frames.map((f) => PoseFrame(f.seconds + 2, f.points)).toList(),
+          1,
+        ),
+        aStart: 0,
+        aEnd: 3,
+        aRate: 1,
+        bStart: 0,
+        bEnd: 6,
+        fixedBRate: rate,
+        searchFullRange: true,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bRate, rate);
+    expect(result.bStart, closeTo(2, .03));
+    expect(result.bestEffort, isFalse);
+  });
+
+  test('best effort search also respects each B lock', () {
+    final full = motion(3, 1);
+    final sparse = PoseSequence(
+      full.frames.where((f) => f.seconds <= .5).toList(),
+      1,
+    );
+    for (final lockStart in [true, false]) {
+      final result = solveThunderAlignment(
+        PoseAlignmentRequest(
+          a: sparse,
+          b: full,
+          aStart: 0,
+          aEnd: 3,
+          aRate: 1,
+          bStart: 0,
+          bEnd: 3,
+          fixedBStart: lockStart ? .137 : null,
+          fixedBRate: lockStart ? null : 1.237,
+          searchFullRange: true,
+        ),
+      );
+      expect(result, isNotNull);
+      expect(result!.bestEffort, isTrue);
+      if (lockStart) {
+        expect(result.bStart, .137);
+      } else {
+        expect(result.bRate, 1.237);
+      }
+    }
   });
 }

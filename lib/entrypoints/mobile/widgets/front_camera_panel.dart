@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:camera/camera.dart';
+import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'package:flutter/material.dart';
 
 final class FrontCameraPanel extends StatefulWidget {
@@ -249,8 +250,10 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
               top: 8,
               right: 56,
               child: IconButton.filledTonal(
-                onPressed: () =>
-                    setState(() => _mirrorFrontCamera = !_mirrorFrontCamera),
+                onPressed: () {
+                  EasterEggService.instance.mirror();
+                  setState(() => _mirrorFrontCamera = !_mirrorFrontCamera);
+                },
                 tooltip: _mirrorFrontCamera ? '取消鏡像' : '開啟鏡像',
                 isSelected: _mirrorFrontCamera,
                 icon: const Icon(Icons.flip),

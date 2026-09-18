@@ -18,9 +18,14 @@ final class PoseFrame {
 }
 
 final class PoseSequence {
-  const PoseSequence(this.frames, this.aspectRatio);
+  const PoseSequence(this.frames, this.aspectRatio, {this.samplingFps});
   final List<PoseFrame> frames;
   final double aspectRatio;
+  final int? samplingFps;
+
+  double gapLimit(double fallback) => samplingFps == null || samplingFps! <= 0
+      ? fallback
+      : math.max(fallback, 1.5 / samplingFps!);
 
   PoseFrame? at(double seconds) {
     if (frames.isEmpty ||
@@ -38,10 +43,11 @@ final class PoseSequence {
         hi = mid;
       }
     }
+    if (frames[lo].seconds == seconds) return frames[lo];
     if (lo == 0) return frames.first;
     final left = frames[lo - 1];
     final right = frames[lo];
-    if (right.seconds - left.seconds > 0.3) return null;
+    if (right.seconds - left.seconds > gapLimit(0.3)) return null;
     final t = ((seconds - left.seconds) / (right.seconds - left.seconds)).clamp(
       0.0,
       1.0,
@@ -75,6 +81,9 @@ final class PoseAlignmentRequest {
     this.bAnchorStart,
     this.bAnchorEnd,
     this.searchFraction = .1,
+    this.searchFullRange = false,
+    this.fixedBStart,
+    this.fixedBRate,
   });
   final PoseSequence a;
   final PoseSequence b;
@@ -82,6 +91,10 @@ final class PoseAlignmentRequest {
   final bool mirrorA, mirrorB;
   final double? bAnchorStart, bAnchorEnd;
   final double searchFraction;
+  final bool searchFullRange;
+
+  /// Optional locks applied to both coarse search and refinement.
+  final double? fixedBStart, fixedBRate;
 }
 
 final class PoseAlignmentResult {
@@ -90,10 +103,12 @@ final class PoseAlignmentResult {
     this.bRate,
     this.error,
     this.coverage,
-    this.ambiguous,
-  );
+    this.ambiguous, {
+    this.bestEffort = false,
+  });
   final double bStart, bRate, error, coverage;
   final bool ambiguous;
+  final bool bestEffort;
 }
 
 List<PosePoint>? _features(PoseFrame? frame, double aspect, bool mirrored) {
@@ -123,18 +138,42 @@ List<PosePoint>? _features(PoseFrame? frame, double aspect, bool mirrored) {
 /// Thunder experiment objective: independent B offset/rate with unmatched tails.
 /// Normalize BEFORE interpolation, matching the offline evaluation.
 PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
-  final startAnchor = request.bAnchorStart ?? request.bStart;
-  final endAnchor = request.bAnchorEnd ?? request.bEnd;
+  final startAnchor = request.searchFullRange
+      ? request.bStart
+      : request.bAnchorStart ?? request.bStart;
+  final endAnchor = request.searchFullRange
+      ? request.bEnd
+      : request.bAnchorEnd ?? request.bEnd;
   final duration = (request.aEnd - request.aStart) / request.aRate;
   if (![
+        request.aStart,
+        request.aEnd,
+        request.aRate,
+        request.bStart,
+        request.bEnd,
+        request.a.aspectRatio,
+        request.b.aspectRatio,
         startAnchor,
         endAnchor,
         duration,
         request.searchFraction,
       ].every((v) => v.isFinite) ||
       duration <= 0 ||
+      request.bEnd <= request.bStart ||
+      request.a.aspectRatio <= 0 ||
+      request.b.aspectRatio <= 0 ||
       endAnchor <= startAnchor ||
       request.aRate <= 0) {
+    return null;
+  }
+  final fixedStart = request.fixedBStart;
+  final fixedRate = request.fixedBRate;
+  if ((fixedStart != null &&
+          (!fixedStart.isFinite ||
+              fixedStart < request.bStart ||
+              fixedStart >= endAnchor)) ||
+      (fixedRate != null &&
+          (!fixedRate.isFinite || fixedRate < .1 || fixedRate > 4))) {
     return null;
   }
   List<PosePoint>? sample(
@@ -155,10 +194,11 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
         hi = mid;
       }
     }
+    if (frames[lo].seconds == t) return rows[lo];
     final left = math.max(0, lo - 1);
     final a = rows[left], b = rows[lo];
     final dt = frames[lo].seconds - frames[left].seconds;
-    if (a == null || b == null || dt > .25) return null;
+    if (a == null || b == null || dt > sequence.gapLimit(.25)) return null;
     final alpha = dt == 0 ? 0.0 : (t - frames[left].seconds) / dt;
     return List.generate(
       12,
@@ -192,11 +232,25 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
       .toList();
   final radius =
       (endAnchor - startAnchor) * request.searchFraction.clamp(0.0, .5);
-  final low = math.max(request.bStart, startAnchor - radius);
-  final high = math.min(endAnchor, startAnchor + radius);
+  final low =
+      fixedStart ??
+      (request.searchFullRange
+          ? request.bStart
+          : math.max(request.bStart, startAnchor - radius));
+  final high =
+      fixedStart ??
+      (request.searchFullRange
+          ? request.bEnd
+          : math.min(endAnchor, startAnchor + radius));
+  final rateLow = fixedRate ?? .1;
+  final rateHigh = fixedRate ?? 4.0;
+  var bestEffort = false;
   PoseAlignmentResult? evaluate(double start, double rate) {
-    if (math.min(duration * rate, endAnchor - start) <
-        .6 * (endAnchor - startAnchor)) {
+    if (start >= endAnchor) return null;
+    if (!bestEffort &&
+        !request.searchFullRange &&
+        math.min(duration * rate, endAnchor - start) <
+            .6 * (endAnchor - startAnchor)) {
       return null;
     }
     var inside = 0, valid = 0, directions = 0;
@@ -217,7 +271,7 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
                 12,
                 (j) => j,
               ).where((j) => a[j].score >= .3 && b[j].score >= .3).length <
-              6) {
+              (bestEffort ? 4 : 6)) {
         prevA = null;
         prevB = null;
         continue;
@@ -251,7 +305,10 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
       prevA = a;
       prevB = b;
     }
-    if (inside < count * .8 || valid < count * .5 || weight == 0) return null;
+    if (valid == 0 || weight == 0 || !cost.isFinite) return null;
+    if (!bestEffort && (inside < count * .8 || valid < count * .5)) {
+      return null;
+    }
     final coverage = valid / count;
     return PoseAlignmentResult(
       start,
@@ -265,11 +322,17 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
   }
 
   final candidates = <PoseAlignmentResult>[];
-  for (var s = low; s <= high + 1e-8; s += .05) {
-    for (var r = .1; r <= 4 + 1e-8; r += .05) {
-      final result = evaluate(s, r);
-      if (result != null) candidates.add(result);
+  // Prefer the original evidence requirements; relax only if they reject all
+  // candidates. Missing coverage still contributes to the objective.
+  for (var pass = 0; pass < 2; pass++) {
+    bestEffort = pass == 1;
+    for (var s = low; s <= high + 1e-8; s += .05) {
+      for (var r = rateLow; r <= rateHigh + 1e-8; r += .05) {
+        final result = evaluate(s, r);
+        if (result != null) candidates.add(result);
+      }
     }
+    if (candidates.isNotEmpty) break;
   }
   if (candidates.isEmpty) return null;
   candidates.sort((a, b) => a.error.compareTo(b.error));
@@ -289,8 +352,8 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
       s += .01
     ) {
       for (
-        var r = math.max(.1, seed.bRate - .05);
-        r <= math.min(4.0, seed.bRate + .05) + 1e-8;
+        var r = math.max(rateLow, seed.bRate - .05);
+        r <= math.min(rateHigh, seed.bRate + .05) + 1e-8;
         r += .005
       ) {
         final result = evaluate(s, r);
@@ -311,6 +374,7 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
               (c.bRate - best.bRate).abs() > .1) &&
           c.error < best.error + .015,
     ),
+    bestEffort: bestEffort,
   );
 }
 
