@@ -1313,6 +1313,9 @@ interface VideoPlayerInstanceApi {
   fun pause()
   /** Seeks to the given playback position, in milliseconds. */
   fun seekTo(position: Long)
+
+  /** Previews a position during an explicit user drag gesture. */
+  fun scrubTo(position: Long)
   /** Returns the current playback position, in milliseconds. */
   fun getCurrentPosition(): Long
   /** Returns the current buffer position, in milliseconds. */
@@ -1474,6 +1477,24 @@ interface VideoPlayerInstanceApi {
                 } catch (exception: Throwable) {
                   MessagesPigeonUtils.wrapError(exception)
                 }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.scrubTo$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val positionArg = args[0] as Long
+            val wrapped: List<Any?> = try {
+              api.scrubTo(positionArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
             reply.reply(wrapped)
           }
         } else {

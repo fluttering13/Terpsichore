@@ -106,7 +106,12 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
         platformState = PlatformPlaybackState.BUFFERING;
         break;
       case Player.STATE_READY:
-        platformState = PlatformPlaybackState.READY;
+        // Scrubbing can be READY while playback remains suppressed. Keep Dart
+        // waiting until normal playback has been restored.
+        platformState = exoPlayer.getPlaybackSuppressionReason()
+                == Player.PLAYBACK_SUPPRESSION_REASON_SCRUBBING
+            ? PlatformPlaybackState.BUFFERING
+            : PlatformPlaybackState.READY;
         maybeSendInitialized();
         break;
       case Player.STATE_ENDED:
@@ -117,6 +122,11 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
         break;
     }
     events.onPlaybackStateChanged(platformState);
+  }
+
+  @Override
+  public void onPlaybackSuppressionReasonChanged(int reason) {
+    onPlaybackStateChanged(exoPlayer.getPlaybackState());
   }
 
   @Override

@@ -224,6 +224,9 @@ abstract class VideoPlayerInstanceApi {
   /// Seeks to the given playback position, in milliseconds.
   void seekTo(int position);
 
+  /// Previews a position during an explicit user drag gesture.
+  void scrubTo(int position);
+
   /// Returns the current playback position, in milliseconds.
   int getCurrentPosition();
 

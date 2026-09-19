@@ -20,6 +20,8 @@ dependencies:
   saver_gallery: ^5.1.0
   share_plus: ^13.3.0
   video_player: ^2.14.0
+  # Explicit user-drag seek extension supplied by our local Android patch.
+  video_player_android: ^2.12.2
   tflite_flutter: 0.12.1
 
 dev_dependencies:
@@ -29,7 +31,7 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 dependency_overrides:
-  # Local Android patch enables Media3's native rapid-seek scrubbing mode.
+  # Local Android patch exposes explicit user-drag scrubbing operations.
   video_player_android:
     path: third_party/video_player_android
 

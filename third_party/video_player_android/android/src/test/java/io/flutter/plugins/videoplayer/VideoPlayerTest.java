@@ -185,7 +185,63 @@ public final class VideoPlayerTest {
 
     videoPlayer.seekTo(10L);
     verify(mockExoPlayer).seekTo(10);
+    verify(mockExoPlayer, never()).setScrubbingModeEnabled(true);
 
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void playLeavesExplicitUserScrubImmediately() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.scrubTo(10L);
+    videoPlayer.scrubTo(20L);
+    verify(mockExoPlayer).setScrubbingModeEnabled(true);
+    clearInvocations(mockExoPlayer);
+
+    videoPlayer.play();
+    var order = inOrder(mockExoPlayer);
+    order.verify(mockExoPlayer).setScrubbingModeEnabled(false);
+    order.verify(mockExoPlayer).play();
+
+    videoPlayer.seekTo(30L);
+    verify(mockExoPlayer, never()).setScrubbingModeEnabled(true);
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void rapidProgrammaticSeeksNeverEnableScrubbing() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.seekTo(10L);
+    videoPlayer.seekTo(10L);
+    videoPlayer.seekTo(20L);
+    verify(mockExoPlayer, never()).setScrubbingModeEnabled(true);
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void userScrubDoesNotEndUntilGestureCommitsEvenAfterLongPause() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.scrubTo(10L);
+    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        .idleFor(java.time.Duration.ofSeconds(1));
+    verify(mockExoPlayer).setScrubbingModeEnabled(true);
+    verify(mockExoPlayer, never()).setScrubbingModeEnabled(false);
+
+    videoPlayer.seekTo(10L);
+    verify(mockExoPlayer).setScrubbingModeEnabled(false);
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void committedSeekEndsUserScrubWithoutWaitingForTimer() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.scrubTo(10L);
+    clearInvocations(mockExoPlayer);
+    videoPlayer.seekTo(20L);
+    var order = inOrder(mockExoPlayer);
+    order.verify(mockExoPlayer).setScrubbingModeEnabled(false);
+    order.verify(mockExoPlayer).seekTo(20L);
+    verify(mockExoPlayer, never()).setScrubbingModeEnabled(true);
     videoPlayer.dispose();
   }
 

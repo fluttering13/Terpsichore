@@ -11,6 +11,15 @@ import 'messages.g.dart' hide videoEvents;
 import 'messages.g.dart' as pigeon show videoEvents;
 import 'platform_view_player.dart';
 
+final Object _userScrubKey = Object();
+
+/// Marks only this seek operation as a user drag preview. A zone carries the
+/// intent through VideoPlayerController.seekTo without a global, mutable flag
+/// or bypassing the controller's position/caption updates. Other platforms
+/// simply perform their normal seek.
+Future<void> duringUserVideoScrub(Future<void> Function() seek) =>
+    runZoned(seek, zoneValues: {_userScrubKey: true});
+
 /// The non-test implementation of `_apiProvider`.
 VideoPlayerInstanceApi _productionApiProvider(int playerId) {
   return VideoPlayerInstanceApi(messageChannelSuffix: playerId.toString());
@@ -177,7 +186,9 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
 
   @override
   Future<void> seekTo(int playerId, Duration position) {
-    return _playerWith(id: playerId).seekTo(position);
+    return _playerWith(
+      id: playerId,
+    ).seekTo(position, userScrub: Zone.current[_userScrubKey] == true);
   }
 
   @override
@@ -363,8 +374,8 @@ class _PlayerInstance {
     return _api.setPlaybackSpeed(speed);
   }
 
-  Future<void> seekTo(Duration position) {
-    return _api.seekTo(position.inMilliseconds);
+  Future<void> seekTo(Duration position, {bool userScrub = false}) {
+    return userScrub ? _api.scrubTo(position.inMilliseconds) : _api.seekTo(position.inMilliseconds);
   }
 
   Future<Duration> getPosition() async {

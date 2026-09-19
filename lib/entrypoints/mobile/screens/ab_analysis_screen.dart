@@ -30,6 +30,7 @@ import '../../../infrastructure/saved_projects/local_saved_project_store.dart';
 import '../../../infrastructure/saved_projects/project_media_store.dart';
 import '../../../infrastructure/video_playback/latest_video_seeker.dart';
 import '../../../infrastructure/video_playback/local_video_controller.dart';
+import '../../../infrastructure/video_playback/video_playback_ready.dart';
 import '../widgets/playback_rate_control.dart';
 import '../widgets/precision_scrub_slider.dart';
 import '../widgets/saved_project_controls.dart';
@@ -100,6 +101,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   AnalysisCustomAudio? _customAudio;
   double _progress = 0;
   bool _commonPlaying = false;
+  bool _startingCommonPlayback = false;
   bool _endingCommonPlayback = false;
   bool _orientationLocked = false;
   bool _exporting = false;
@@ -667,6 +669,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     if (!mounted) return;
     final track = isA ? _trackA : _trackB;
     if (track == null || !identical(track.player, player)) return;
+    // During preparation/recovery, seek and native callbacks can still carry
+    // old end positions. They must not end or advance the shared timeline.
+    if (_startingCommonPlayback) return;
     final eggs = EasterEggService.instance;
     if (eggs.foreground && eggs.page == 2 && !eggs.covered) {
       eggs.engine.practice(
@@ -741,7 +746,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     return track.trim.clamp(track.trim.start + track.trim.duration * progress);
   }
 
-  Future<void> _seekBoth(double progress) async {
+  Future<void> _seekBoth(double progress, {bool userScrub = false}) async {
     final a = _trackA;
     final b = _trackB;
     final aPosition = a == null ? null : _sourcePosition(a, progress);
@@ -749,10 +754,18 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     setState(() => _progress = progress);
     final operations = <Future<void>>[];
     if (a != null) {
-      operations.add(a.seeker.seek(aPosition!));
+      operations.add(
+        userScrub
+            ? a.seeker.seekWhileDragging(aPosition!)
+            : a.seeker.seek(aPosition!),
+      );
     }
     if (b != null) {
-      operations.add(b.seeker.seek(bPosition!));
+      operations.add(
+        userScrub
+            ? b.seeker.seekWhileDragging(bPosition!)
+            : b.seeker.seek(bPosition!),
+      );
     }
     if (_audioSource == AnalysisAudioSource.custom) {
       operations.add(_syncCustomAudio(_sharedDuration * progress));
@@ -774,6 +787,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   }
 
   Future<void> _toggleCommonPlayback() async {
+    if (_startingCommonPlayback || _endingCommonPlayback) return;
     final tracks = [_trackA, _trackB].whereType<_TrackState>().toList();
     if (tracks.isEmpty) return;
     if (_commonPlaying) {
@@ -785,30 +799,50 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       if (mounted) setState(() => _commonPlaying = false);
       return;
     }
-    await Future.wait([
-      ...tracks.map((track) => track.player.pause()),
-      _customAudioPlayer.pause(),
-    ]);
-    _cancelCustomAudioSchedule();
-    await _applySelectedAudioSource();
-    if (_progress >= 0.999) await _seekBoth(0);
-    await Future.wait(
-      tracks.map(
-        (track) => track.seeker.seek(_sourcePosition(track, _progress)),
-      ),
-    );
-    await Future.wait(tracks.map((track) => track.player.play()));
-    if (_audioSource == AnalysisAudioSource.custom) {
-      await _syncCustomAudio(_sharedDuration * _progress, play: true);
+    setState(() => _startingCommonPlayback = true);
+    try {
+      await Future.wait([
+        ...tracks.map((track) => track.player.pause()),
+        _customAudioPlayer.pause(),
+      ]);
+      _cancelCustomAudioSchedule();
+      await _applySelectedAudioSource();
+      // Reset the timeline here; the shared seek below must run only once.
+      if (_progress >= 0.999) setState(() => _progress = 0);
+      await Future.wait(
+        tracks.map(
+          (track) => track.seeker.seek(_sourcePosition(track, _progress)),
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _commonPlaying = true);
+      await startVideoPlaybackTogether(
+        tracks.map((track) => track.player),
+        isActive: () => mounted && _commonPlaying,
+      );
+      if (!mounted || !_commonPlaying) return;
+      final clockTrack = tracks.first;
+      final currentPosition = await clockTrack.player.position;
+      if (!mounted || !_commonPlaying) return;
+      if (currentPosition != null && _sharedDuration > Duration.zero) {
+        _progress =
+            ((currentPosition - clockTrack.trim.start).inMicroseconds /
+                    clockTrack.rate.value /
+                    _sharedDuration.inMicroseconds)
+                .clamp(0, 1);
+      }
+      if (_audioSource == AnalysisAudioSource.custom) {
+        await _syncCustomAudio(_sharedDuration * _progress, play: true);
+      }
+    } catch (error) {
+      if (mounted) {
+        _commonPlaying = false;
+        await Future.wait(tracks.map((track) => track.player.pause()));
+        if (mounted) _showProjectMessage('影片尚未準備好，請再試一次。');
+      }
+    } finally {
+      if (mounted) setState(() => _startingCommonPlayback = false);
     }
-    // Some Android devices briefly yield audio focus while the second native
-    // player starts. With mixing enabled, retry any controller that did not
-    // remain playing so A and B enter the shared session together.
-    final stoppedTracks = tracks.where(
-      (track) => !track.player.value.isPlaying,
-    );
-    await Future.wait(stoppedTracks.map((track) => track.player.play()));
-    if (mounted) setState(() => _commonPlaying = true);
   }
 
   Future<void> _toggleTrack(bool isA) async {
@@ -853,7 +887,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         _commonPlaying = false;
       });
     }
-    await track.seeker.seek(startMoved ? start : end);
+    await track.seeker.seekWhileDragging(startMoved ? start : end);
   }
 
   Future<void> _changeRate(bool isA, PlaybackRate rate) async {
@@ -1392,102 +1426,107 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       ),
     ];
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-        child: Column(
-          children: [
-            _AnalysisToolbar(
-              layout: effectiveLayout,
-              orientationLocked: _orientationLocked,
-              output: _output,
-              exportFolder: _exportFolder,
-              canExport: _trackA != null && _trackB != null && !_exporting,
-              exporting: _exporting,
-              onLayoutChanged: _setLayout,
-              onToggleLock: _toggleOrientationLock,
-              projectControls: SavedProjectControls(
-                mode: SavedProjectMode.analysis,
-                canSave: _trackA != null || _trackB != null,
-                onSave: _saveProject,
-                onLoad: _loadProject,
+    return AbsorbPointer(
+      absorbing: _startingCommonPlayback,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+          child: Column(
+            children: [
+              _AnalysisToolbar(
+                layout: effectiveLayout,
+                orientationLocked: _orientationLocked,
+                output: _output,
+                exportFolder: _exportFolder,
+                canExport: _trackA != null && _trackB != null && !_exporting,
+                exporting: _exporting,
+                onLayoutChanged: _setLayout,
+                onToggleLock: _toggleOrientationLock,
+                projectControls: SavedProjectControls(
+                  mode: SavedProjectMode.analysis,
+                  canSave: _trackA != null || _trackB != null,
+                  onSave: _saveProject,
+                  onLoad: _loadProject,
+                ),
+                onOpenExportSettings: _showExportSettings,
+                onExport: _export,
               ),
-              onOpenExportSettings: _showExportSettings,
-              onExport: _export,
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 36,
-              child: Row(
-                children: [
-                  TextButton.icon(
-                    onPressed:
-                        _trackA != null &&
-                            _trackB != null &&
-                            !_exporting &&
-                            _settingsReady
-                        ? () => _runPoseAnalysis()
-                        : null,
-                    icon: const Icon(Icons.auto_awesome, size: 18),
-                    label: const Text('AI 對齊（固定 A）'),
-                  ),
-                  IconButton(
-                    tooltip: 'AI 對齊設定',
-                    onPressed: _settingsReady && _poseAnalyzer == null
-                        ? _showAiSettings
-                        : null,
-                    icon: const Icon(Icons.tune, size: 18),
-                  ),
-                  if (_alignmentLabel != null &&
-                      (identical(_beforeAiTrack, _trackA) ||
-                          identical(_beforeAiTrack, _trackB))) ...[
-                    Expanded(
-                      child: Text(
-                        _alignmentLabel!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall,
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 36,
+                child: Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed:
+                          _trackA != null &&
+                              _trackB != null &&
+                              !_exporting &&
+                              _settingsReady
+                          ? () => _runPoseAnalysis()
+                          : null,
+                      icon: const Icon(Icons.auto_awesome, size: 18),
+                      label: const Text('AI 對齊（固定 A）'),
+                    ),
+                    IconButton(
+                      tooltip: 'AI 對齊設定',
+                      onPressed: _settingsReady && _poseAnalyzer == null
+                          ? _showAiSettings
+                          : null,
+                      icon: const Icon(Icons.tune, size: 18),
+                    ),
+                    if (_alignmentLabel != null &&
+                        (identical(_beforeAiTrack, _trackA) ||
+                            identical(_beforeAiTrack, _trackB))) ...[
+                      Expanded(
+                        child: Text(
+                          _alignmentLabel!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: _undoAlignment,
-                      child: const Text('復原'),
-                    ),
+                      TextButton(
+                        onPressed: _undoAlignment,
+                        child: const Text('復原'),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            Expanded(
-              child: effectiveLayout == _ComparisonLayout.horizontal
-                  ? Row(
-                      children: [
-                        Expanded(child: tracks.first),
-                        const SizedBox(width: 6),
-                        Expanded(child: tracks.last),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Expanded(child: tracks.first),
-                        const SizedBox(height: 6),
-                        Expanded(child: tracks.last),
-                      ],
-                    ),
-            ),
-            const SizedBox(height: 4),
-            _CommonTimeline(
-              playing: _commonPlaying,
-              progress: _progress,
-              duration: _sharedDuration,
-              enabled: _trackA != null || _trackB != null,
-              audioSource: _audioSource,
-              customAudioLabel: _customAudio?.label,
-              onToggle: _toggleCommonPlayback,
-              onSeekStart: _beginCommonSeek,
-              onSeek: _seekBoth,
-              onAudioSourceChanged: _selectAudioSource,
-            ),
-          ],
+              Expanded(
+                child: effectiveLayout == _ComparisonLayout.horizontal
+                    ? Row(
+                        children: [
+                          Expanded(child: tracks.first),
+                          const SizedBox(width: 6),
+                          Expanded(child: tracks.last),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(child: tracks.first),
+                          const SizedBox(height: 6),
+                          Expanded(child: tracks.last),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 4),
+              _CommonTimeline(
+                preparing: _startingCommonPlayback,
+                playing: _commonPlaying,
+                progress: _progress,
+                duration: _sharedDuration,
+                enabled: _trackA != null || _trackB != null,
+                audioSource: _audioSource,
+                customAudioLabel: _customAudio?.label,
+                onToggle: _toggleCommonPlayback,
+                onSeekStart: _beginCommonSeek,
+                onSeek: (progress) => _seekBoth(progress, userScrub: true),
+                onSeekEnd: _seekBoth,
+                onAudioSourceChanged: _selectAudioSource,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1767,6 +1806,7 @@ final class _TrackCard extends StatelessWidget {
                 .clamp(1, double.infinity)
                 .toDouble(),
             onChanged: onTrimChanged,
+            onChangeEnd: (_) => value.seeker.endUserScrub(),
           );
     final controls = value == null
         ? null
@@ -1932,6 +1972,7 @@ final class _TrackPlayButton extends StatelessWidget {
 
 final class _CommonTimeline extends StatelessWidget {
   const _CommonTimeline({
+    required this.preparing,
     required this.playing,
     required this.progress,
     required this.duration,
@@ -1941,9 +1982,11 @@ final class _CommonTimeline extends StatelessWidget {
     required this.onToggle,
     required this.onSeekStart,
     required this.onSeek,
+    required this.onSeekEnd,
     required this.onAudioSourceChanged,
   });
 
+  final bool preparing;
   final bool playing;
   final double progress;
   final Duration duration;
@@ -1953,15 +1996,21 @@ final class _CommonTimeline extends StatelessWidget {
   final VoidCallback onToggle;
   final ValueChanged<double> onSeekStart;
   final ValueChanged<double> onSeek;
+  final ValueChanged<double> onSeekEnd;
   final ValueChanged<AnalysisAudioSource> onAudioSourceChanged;
 
   @override
   Widget build(BuildContext context) => Row(
     children: [
       IconButton.filled(
-        tooltip: '共同播放',
+        tooltip: preparing ? '準備共同播放' : '共同播放',
         onPressed: enabled ? onToggle : null,
-        icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+        icon: preparing
+            ? const SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(playing ? Icons.pause : Icons.play_arrow),
       ),
       PopupMenuButton<AnalysisAudioSource>(
         tooltip: switch (audioSource) {
@@ -2032,7 +2081,7 @@ final class _CommonTimeline extends StatelessWidget {
               : (_) {},
           onChangeEnd: enabled
               ? (position) =>
-                    onSeek(position.inMicroseconds / duration.inMicroseconds)
+                    onSeekEnd(position.inMicroseconds / duration.inMicroseconds)
               : null,
         ),
       ),

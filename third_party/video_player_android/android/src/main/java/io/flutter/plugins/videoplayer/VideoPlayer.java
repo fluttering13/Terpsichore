@@ -9,7 +9,7 @@ import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
+import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
@@ -17,6 +17,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
@@ -43,11 +44,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean isDisposed = false;
-  private static final long RAPID_SEEK_THRESHOLD_MS = 160;
-  private static final long SCRUBBING_IDLE_TIMEOUT_MS = 220;
-  private long previousSeekRealtimeMs = Long.MIN_VALUE;
   private boolean scrubbingModeEnabled = false;
-  private final Runnable exitScrubbingMode = this::disableScrubbingMode;
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -91,6 +88,20 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     exoPlayer.prepare();
     exoPlayerEventListener = createExoPlayerEventListener(exoPlayer, surfaceProducer);
     exoPlayer.addListener(exoPlayerEventListener);
+    // Opt-in device diagnostics for comparing source frames on the shared clock.
+    if (Log.isLoggable("AB_FRAME", Log.DEBUG)) {
+      exoPlayer.addListener(
+          new Player.Listener() {
+            @Override
+            public void onEvents(Player player, Player.Events events) {
+              tracePlayback("event");
+            }
+          });
+      exoPlayer.setVideoFrameMetadataListener(
+          (ptsUs, releaseNs, format, mediaFormat) ->
+              Log.d("AB_FRAME", "frame id=" + System.identityHashCode(this)
+                  + " ptsUs=" + ptsUs + " releaseNs=" + releaseNs));
+    }
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
 
@@ -131,12 +142,16 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   }
 
   @Override
+  @UnstableApi
   public void play() {
+    tracePlayback("play");
+    disableScrubbingMode();
     exoPlayer.play();
   }
 
   @Override
   public void pause() {
+    tracePlayback("pause");
     exoPlayer.pause();
   }
 
@@ -173,16 +188,18 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Override
   @UnstableApi
   public void seekTo(long position) {
-    final long now = SystemClock.elapsedRealtime();
-    if (!scrubbingModeEnabled
-        && now - previousSeekRealtimeMs <= RAPID_SEEK_THRESHOLD_MS) {
+    tracePlayback("seek " + position);
+    disableScrubbingMode();
+    exoPlayer.seekTo(position);
+  }
+
+  @Override
+  @UnstableApi
+  public void scrubTo(long position) {
+    tracePlayback("scrub " + position);
+    if (!scrubbingModeEnabled) {
       exoPlayer.setScrubbingModeEnabled(true);
       scrubbingModeEnabled = true;
-    }
-    previousSeekRealtimeMs = now;
-    mainHandler.removeCallbacks(exitScrubbingMode);
-    if (scrubbingModeEnabled) {
-      mainHandler.postDelayed(exitScrubbingMode, SCRUBBING_IDLE_TIMEOUT_MS);
     }
     exoPlayer.seekTo(position);
   }
@@ -193,6 +210,15 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       exoPlayer.setScrubbingModeEnabled(false);
       scrubbingModeEnabled = false;
     }
+  }
+
+  private void tracePlayback(String command) {
+    if (!Log.isLoggable("AB_FRAME", Log.DEBUG)) return;
+    Log.i("AB_NATIVE", System.identityHashCode(this) + " " + command
+        + " nowNs=" + System.nanoTime()
+        + " state=" + exoPlayer.getPlaybackState() + " want=" + exoPlayer.getPlayWhenReady()
+        + " playing=" + exoPlayer.isPlaying() + " suppression=" + exoPlayer.getPlaybackSuppressionReason()
+        + " pos=" + exoPlayer.getCurrentPosition() + " rate=" + exoPlayer.getPlaybackParameters().speed);
   }
 
   @NonNull

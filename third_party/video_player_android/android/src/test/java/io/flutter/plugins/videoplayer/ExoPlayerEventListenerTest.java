@@ -86,6 +86,20 @@ public final class ExoPlayerEventListenerTest {
   }
 
   @Test
+  public void readyWhileScrubbingStaysBufferingUntilSuppressionClears() {
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_READY);
+    when(mockExoPlayer.getPlaybackSuppressionReason())
+        .thenReturn(Player.PLAYBACK_SUPPRESSION_REASON_SCRUBBING);
+    eventListener.onPlaybackStateChanged(Player.STATE_READY);
+    verify(mockCallbacks).onPlaybackStateChanged(PlatformPlaybackState.BUFFERING);
+
+    when(mockExoPlayer.getPlaybackSuppressionReason())
+        .thenReturn(Player.PLAYBACK_SUPPRESSION_REASON_NONE);
+    eventListener.onPlaybackSuppressionReasonChanged(Player.PLAYBACK_SUPPRESSION_REASON_NONE);
+    verify(mockCallbacks).onPlaybackStateChanged(PlatformPlaybackState.READY);
+  }
+
+  @Test
   public void onPlaybackStateChangedIdleSendsIdle() {
     eventListener.onPlaybackStateChanged(Player.STATE_IDLE);
 

@@ -359,7 +359,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
     );
     final startMoved = next.start != old.start;
     setState(() => _loop = next);
-    await _player?.seekTo(startMoved ? next.start : next.end);
+    await _seeker?.seekWhileDragging(startMoved ? next.start : next.end);
   }
 
   void _markEightBoundary() {
@@ -553,7 +553,8 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                             position: _position,
                             duration: _duration,
                             onChangeStart: (_) => player.pause(),
-                            onChanged: (position) => _seeker?.seek(position),
+                            onChanged: (position) =>
+                                _seeker?.seekWhileDragging(position),
                             onChangeEnd: (position) => _seeker?.seek(position),
                           ),
                         ),
@@ -598,6 +599,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                 onLoopChanged: _onLoopChanged,
                 onLoopChangeStart: (_) => _loopEditStart = _loop,
                 onLoopChangeEnd: (_) {
+                  unawaited(_seeker?.endUserScrub());
                   final start = _loopEditStart;
                   if (start != null &&
                       (start.start != _loop.start || start.end != _loop.end)) {

@@ -555,6 +555,25 @@ void main() {
       expect(position, const Duration(milliseconds: positionMilliseconds));
     });
 
+    test('user scrub intent does not leak into concurrent or later programmatic seeks', () async {
+      final (AndroidVideoPlayer player, _, MockVideoPlayerInstanceApi playerApi) = setUpMockPlayer(
+        playerId: 1,
+      );
+      final releaseDrag = Completer<void>();
+      final drag = duringUserVideoScrub(() async {
+        await releaseDrag.future;
+        await player.seekTo(1, const Duration(milliseconds: 200));
+      });
+      await player.seekTo(1, const Duration(milliseconds: 100));
+      releaseDrag.complete();
+      await drag;
+      await player.seekTo(1, const Duration(milliseconds: 200));
+      verify(playerApi.scrubTo(200)).called(1);
+      verify(playerApi.seekTo(100)).called(1);
+      verify(playerApi.seekTo(200)).called(1);
+      verifyNever(playerApi.scrubTo(100));
+    });
+
     group('video events', () {
       // Sets up a mock player that emits the given event structure as a success
       // callback on the internal platform channel event stream, and returns
