@@ -76,8 +76,7 @@ jobs:
           disable-animations: true
           script: |
             (cd android && ./gradlew :app:connectedDebugAndroidTest --console=plain)
-            adb shell am broadcast -n com.example.terpsichore/.DebugLauncherReceiver -a com.example.terpsichore.TEST_ICON --es alias HappyIcon
-            pwsh -File tools/test-launcher-upgrade.ps1 -Serial emulator-5554
+            pwsh -File tools/test-launcher-upgrade.ps1 -Serial emulator-5554 -PrepareEmulator
 
       - name: Upload launcher test reports
         if: always()

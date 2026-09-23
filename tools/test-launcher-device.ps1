@@ -3,14 +3,14 @@ param(
     [switch]$CheckSamsungDrawer
 )
 $ErrorActionPreference = 'Stop'
-$package = 'com.example.terpsichore'
+$package = & "$PSScriptRoot/get-android-application-id.ps1"
 function Invoke-Adb {
     $result = & adb -s $Serial @args
     if ($LASTEXITCODE -ne 0) { throw "adb failed: $args" }
     return $result
 }
 $entries = Invoke-Adb shell cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package
-$aliases = @($entries | Where-Object { $_ -match 'com\.example\.terpsichore/' })
+$aliases = @($entries | Where-Object { $_ -match ([regex]::Escape($package) + '/') })
 if ($aliases.Count -ne 1) { throw "Expected one enabled launcher: $entries" }
 Write-Output "PASS PackageManager: $($aliases[0].Trim())"
 

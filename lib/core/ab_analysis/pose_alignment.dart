@@ -381,9 +381,7 @@ PoseAlignmentResult? solveThunderAlignment(PoseAlignmentRequest request) {
 /// Fixed A, full-coverage affine alignment of B. Run in a worker isolate.
 PoseAlignmentResult? solvePoseAlignment(PoseAlignmentRequest request) {
   final duration = (request.aEnd - request.aStart) / request.aRate;
-  if (!duration.isFinite ||
-      duration <= 0 ||
-      request.bEnd <= request.bStart) {
+  if (!duration.isFinite || duration <= 0 || request.bEnd <= request.bStart) {
     return null;
   }
   final count = math.min(90, math.max(6, (duration * 12).floor()));
