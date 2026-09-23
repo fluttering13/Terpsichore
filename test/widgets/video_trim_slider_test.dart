@@ -4,6 +4,76 @@ import 'package:terpsichore/core/shared_video_playback/time_range.dart';
 import 'package:terpsichore/entrypoints/mobile/widgets/video_trim_slider.dart';
 
 void main() {
+  for (final boundary in [0, 10000]) {
+    testWidgets('collapsed trim at $boundary can be dragged open', (
+      tester,
+    ) async {
+      var trim = TimeRange(
+        start: Duration(milliseconds: boundary),
+        end: Duration(milliseconds: boundary),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => VideoTrimSlider(
+                trim: trim,
+                mediaDuration: const Duration(seconds: 10),
+                onChanged: (values) => setState(() {
+                  trim = TimeRange(
+                    start: Duration(milliseconds: values.start.round()),
+                    end: Duration(milliseconds: values.end.round()),
+                  );
+                }),
+                onChangeEnd: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final rect = tester.getRect(find.byType(RangeSlider));
+      final from = Offset(
+        boundary == 0 ? rect.left + 24 : rect.right - 24,
+        rect.center.dy,
+      );
+      await tester.dragFrom(from, Offset(boundary == 0 ? 150 : -150, 0));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(trim.duration.inMilliseconds, greaterThan(100));
+      expect(
+        boundary == 0 ? trim.start.inMilliseconds : trim.end.inMilliseconds,
+        boundary,
+      );
+    });
+  }
+
+  testWidgets('end cannot collapse onto start and short clips remain valid', (
+    tester,
+  ) async {
+    for (final length in [50, 10000]) {
+      RangeValues? changed;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: VideoTrimSlider(
+              trim: TimeRange(
+                start: Duration.zero,
+                end: Duration(milliseconds: length),
+              ),
+              mediaDuration: Duration(milliseconds: length),
+              onChanged: (values) => changed = values,
+              onChangeEnd: (_) {},
+            ),
+          ),
+        ),
+      );
+      final slider = tester.widget<RangeSlider>(find.byType(RangeSlider));
+      slider.onChanged!(const RangeValues(0, 0));
+      expect(changed, RangeValues(0, length < 100 ? length.toDouble() : 100));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('duration loss and recovery preserve the selected trim', (
     tester,
   ) async {
@@ -47,7 +117,7 @@ void main() {
           expect(changes, 0);
         } else {
           expect(slider.values.end, milliseconds.toDouble());
-          expect(slider.values.start, milliseconds < 2000 ? 1000.0 : 2000.0);
+          expect(slider.values.start, milliseconds < 2000 ? 900.0 : 2000.0);
           expect(slider.onChanged, isNotNull);
         }
       }

@@ -24,15 +24,35 @@ class VideoTrimSlider extends StatelessWidget {
     final durationMs = mediaDuration.inMilliseconds;
     final available = durationMs > 0;
     final max = available ? durationMs.toDouble() : 1.0;
-    final end = available
+    final minimumSpan = max < 100.0 ? max : 100.0;
+    var end = available
         ? trim.end.inMilliseconds.toDouble().clamp(0.0, max)
         : 0.0;
-    final start = trim.start.inMilliseconds.toDouble().clamp(0.0, end);
+    var start = trim.start.inMilliseconds.toDouble().clamp(0.0, end);
+    if (available && end - start < minimumSpan) {
+      // Repair collapsed saved ranges too, including at either media boundary.
+      end = (start + minimumSpan).clamp(0.0, max);
+      start = (end - minimumSpan).clamp(0.0, max);
+    }
+    RangeValues keepPlayable(RangeValues values) {
+      if (values.end - values.start >= minimumSpan) return values;
+      final movingStart =
+          (values.start - start).abs() > (values.end - end).abs();
+      return movingStart
+          ? RangeValues((values.end - minimumSpan).clamp(0.0, max), values.end)
+          : RangeValues(
+              values.start,
+              (values.start + minimumSpan).clamp(0.0, max),
+            );
+    }
+
     return RangeSlider(
       values: RangeValues(start, end),
       max: max,
-      onChanged: available ? onChanged : null,
-      onChangeEnd: available ? onChangeEnd : null,
+      onChanged: available ? (values) => onChanged(keepPlayable(values)) : null,
+      onChangeEnd: available
+          ? (values) => onChangeEnd(keepPlayable(values))
+          : null,
     );
   }
 }
