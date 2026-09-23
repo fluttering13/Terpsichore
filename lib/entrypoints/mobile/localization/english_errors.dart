@@ -1,0 +1,36 @@
+// Authored processing errors; external diagnostics remain verbatim.
+const englishErrors = <String, String>{
+  "無法讀取這個檔案的影片資訊": "Could not read video information from this file",
+  "選取的檔案沒有影片軌": "The selected file has no video track",
+  "影片轉檔失敗（代碼：{0}）": "Video conversion failed (code: {0})",
+  "影片轉檔失敗": "Video conversion failed",
+  "裝置媒體庫沒有回傳失敗原因": "The media library did not provide an error reason",
+  "影片輸出失敗，FFmpeg 回傳代碼：{0}": "Video export failed; FFmpeg returned code {0}",
+  "影片輸出失敗：{0}": "Video export failed: {0}",
+  "未知錯誤": "Unknown error",
+  "模型下載失敗（HTTP {0}）": "Model download failed (HTTP {0})",
+  "下載的 AI 分離模型不完整": "The downloaded AI stem separation model is incomplete",
+  "請選擇有效的分析片段與 1–30 FPS 採樣率":
+      "Select a valid analysis range and a sampling rate from 1 to 30 FPS",
+  "影片影格資料不完整": "Video frame data is incomplete",
+  "無法讀取影片影格": "Could not read video frames",
+  "不是有效的 WAV 檔案": "Not a valid WAV file",
+  "WAV fmt 區塊不完整": "The WAV format chunk is incomplete",
+  "分軌輸入必須是 PCM 16-bit 雙聲道 WAV":
+      "Stem separation requires 16-bit stereo PCM WAV input",
+  "分軌輸入必須是 44.1 kHz WAV": "Stem separation requires 44.1 kHz WAV input",
+  "至少要選擇一個分軌": "Select at least one stem",
+  "無法建立所選樂器的練習混音": "Could not build a practice mix from the selected stems",
+  "AI 分離沒有回傳聲部輸出": "AI separation returned no stems",
+  "AI 分離回傳了非預期的輸出大小": "AI separation returned an unexpected output size",
+  "無法從所選檔案讀取音樂": "Could not read audio from the selected file",
+  "這個檔案沒有可用的音軌，請改選含音樂或聲音的檔案":
+      "This file has no usable audio track. Choose a file containing music or sound.",
+  "音樂轉換失敗：{0}": "Audio conversion failed: {0}",
+  "未知原因": "Unknown reason",
+  "MoveNet 影格尺寸不相容": "Incompatible MoveNet frame dimensions",
+  "MoveNet Thunder 關節輸出不相容": "Incompatible MoveNet Thunder joint output",
+  "人物定位模型輸出不相容": "Incompatible person detection model output",
+  "影格尺寸不相容": "Incompatible frame dimensions",
+  "RTMPose-S 關節輸出不相容": "Incompatible RTMPose-S joint output",
+};

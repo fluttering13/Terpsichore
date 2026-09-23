@@ -13,6 +13,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var instagramResult: MethodChannel.Result? = null
     companion object {
         private const val CHANNEL = "terpsichore/emotion_backmail"
         private const val NOTIFICATION_PERMISSION_REQUEST = 7318
@@ -25,8 +26,45 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "terpsichore/instagram_session")
+            .setMethodCallHandler { call, result ->
+                val store = InstagramSessionStore(this)
+                when (call.method) {
+                    "status" -> result.success(store.read() != null)
+                    "clear" -> {
+                        if (instagramResult != null) result.error("BUSY", "BUSY", null)
+                        else {
+                            store.clear()
+                            android.webkit.CookieManager.getInstance().removeAllCookies {
+                                android.webkit.CookieManager.getInstance().flush()
+                                result.success(null)
+                            }
+                        }
+                    }
+                    "authenticate" -> {
+                        val mode = call.argument<String>("mode")
+                        if (mode !in listOf("login", "import")) result.error("INVALID_REQUEST", "INVALID_REQUEST", null)
+                        else if (instagramResult != null) result.error("BUSY", "BUSY", null)
+                        else {
+                            instagramResult = result
+                            try {
+                                startActivityForResult(Intent(this, InstagramLoginActivity::class.java)
+                                    .putExtra("mode", mode)
+                                    .putExtra("english", call.argument<Boolean>("english") == true), 7320)
+                            } catch (_: Exception) {
+                                instagramResult = null
+                                result.error("IG_LOGIN_UNAVAILABLE", "IG_LOGIN_UNAVAILABLE", null)
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         if (!flutterEngine.plugins.has(AccuratePosePlugin::class.java)) {
             flutterEngine.plugins.add(AccuratePosePlugin())
+        }
+        if (!flutterEngine.plugins.has(PlatformVideoDownloadPlugin::class.java)) {
+            flutterEngine.plugins.add(PlatformVideoDownloadPlugin())
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -79,9 +117,21 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        instagramResult?.error("CANCELLED", "CANCELLED", null)
+        instagramResult = null
         // Drain our native runs before other plugins may tear down shared ORT.
         flutterEngine.plugins.remove(AccuratePosePlugin::class.java)
+        flutterEngine.plugins.remove(PlatformVideoDownloadPlugin::class.java)
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    @Deprecated("Activity result bridge")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 7320) {
+            instagramResult?.success(resultCode == android.app.Activity.RESULT_OK)
+            instagramResult = null
+        }
     }
 
     override fun onRequestPermissionsResult(

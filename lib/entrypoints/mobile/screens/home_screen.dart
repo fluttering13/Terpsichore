@@ -1,3 +1,5 @@
+import '../../../core/engagement/easter_egg_catalog.dart';
+import '../localization/app_text.dart';
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -94,19 +96,23 @@ final class _BrandCover extends StatelessWidget {
                             final save = await showDialog<bool>(
                               context: context,
                               builder: (context) => AlertDialog(
-                                content: const Text(
-                                  '一百天。連 Moirai 都替你記下來了。這份紀錄，本女神准你帶走。',
+                                content: Text(
+                                  (EmotionBackmailService.language.value ==
+                                              AppLanguage.english
+                                          ? easterEggsEnglish
+                                          : easterEggs)['secret']!
+                                      .message,
                                 ),
                                 actions: [
                                   TextButton(
                                     onPressed: () =>
                                         Navigator.pop(context, false),
-                                    child: const Text('關閉'),
+                                    child: Text(appText(context, '關閉')),
                                   ),
                                   FilledButton(
                                     onPressed: () =>
                                         Navigator.pop(context, true),
-                                    child: const Text('儲存紀念圖'),
+                                    child: Text(appText(context, '儲存紀念圖')),
                                   ),
                                 ],
                               ),
@@ -129,15 +135,17 @@ final class _BrandCover extends StatelessWidget {
                                 SnackBar(
                                   content: Text(
                                     result.isSuccess
-                                        ? '百日紀念圖已儲存'
-                                        : '儲存失敗，請確認相簿權限',
+                                        ? appText(context, '百日紀念圖已儲存')
+                                        : appText(context, '儲存失敗，請確認相簿權限'),
                                   ),
                                 ),
                               );
                             } catch (_) {
                               if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('無法儲存百日紀念圖')),
+                                SnackBar(
+                                  content: Text(appText(context, '無法儲存百日紀念圖')),
+                                ),
                               );
                             }
                           },
@@ -236,6 +244,17 @@ final class _FeatureMenu extends StatelessWidget {
           onTap: () => onOpenFeature(4),
         ),
         const SizedBox(height: 10),
+        _FeatureCard(
+          icon: Icons.download_outlined,
+          accent: const Color(0xffff9eb7),
+          title: english ? 'Platform video download' : '平台影片下載',
+          description: english
+              ? 'Paste YouTube, Instagram, Facebook or Threads links and choose video quality'
+              : '貼上 YouTube、IG、FB、Threads 連結，自選畫質下載',
+          actionLabel: english ? 'Paste a video link' : '貼上影片連結',
+          onTap: () => onOpenFeature(5),
+        ),
+        const SizedBox(height: 10),
         Card(
           child: ListTile(
             leading: const Icon(Icons.settings_outlined),
@@ -310,8 +329,8 @@ final class _LoginStreakCard extends StatelessWidget {
                                     ? 'Loading login history…'
                                     : '正在讀取登入紀錄…')
                               : (english
-                                    ? '$days-day login streak'
-                                    : '已連續登入 $days 天'),
+                                    ? 'Current login streak: $days days'
+                                    : '目前連續登入 $days 天'),
                           style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(
                                 color: const Color(0xffffe3ad),
@@ -319,6 +338,22 @@ final class _LoginStreakCard extends StatelessWidget {
                               ),
                         ),
                         const SizedBox(height: 2),
+                        ValueListenableBuilder<int?>(
+                          valueListenable:
+                              EmotionBackmailService.bestOnlineStreak,
+                          builder: (context, bestDays, _) => Text(
+                            bestDays == null
+                                ? (english
+                                      ? 'Best login streak: —'
+                                      : '最高連續登入 — 天')
+                                : (english
+                                      ? 'Best login streak: $bestDays days'
+                                      : '最高連續登入 $bestDays 天'),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: const Color(0xffffe3ad)),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
                         Text(
                           message ??
                               (english

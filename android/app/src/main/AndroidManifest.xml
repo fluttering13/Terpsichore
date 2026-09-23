@@ -14,6 +14,8 @@
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <application
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="Terpsichore"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
@@ -130,6 +132,9 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
 
+        <activity android:name=".InstagramLoginActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize" />
         <receiver
             android:name=".EmotionAlarmReceiver"
             android:exported="false" />

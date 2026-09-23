@@ -4,7 +4,7 @@ import 'package:terpsichore/entrypoints/mobile/terpsichore_app.dart';
 import 'package:terpsichore/infrastructure/engagement/emotion_backmail_service.dart';
 
 void main() {
-  testWidgets('shows all four dancer workflows', (tester) async {
+  testWidgets('shows all five dancer workflows', (tester) async {
     await tester.pumpWidget(const TerpsichoreApp());
 
     expect(find.text('選擇練習方式'), findsOneWidget);
@@ -12,6 +12,7 @@ void main() {
     expect(find.text('A+B 分析'), findsOneWidget);
     expect(find.text('純音樂練習'), findsOneWidget);
     expect(find.text('影片轉檔'), findsOneWidget);
+    expect(find.text('平台影片下載'), findsOneWidget);
 
     await tester.tap(find.text('開始舞蹈練習'));
     await tester.pumpAndSettle();
@@ -113,6 +114,14 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.keyboard_arrow_up));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('平台下載'));
+    await tester.pumpAndSettle();
+    expect(find.text('平台影片下載'), findsOneWidget);
+    expect(find.text('貼上連結'), findsOneWidget);
+    expect(find.text('解析影片'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.keyboard_arrow_up));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('首頁'));
     await tester.pumpAndSettle();
 
@@ -123,15 +132,18 @@ void main() {
     tester,
   ) async {
     EmotionBackmailService.onlineStreak.value = 6;
+    EmotionBackmailService.bestOnlineStreak.value = 12;
     EmotionBackmailService.notificationMessage.value = '第六天的通知台詞';
     addTearDown(() {
       EmotionBackmailService.onlineStreak.value = null;
+      EmotionBackmailService.bestOnlineStreak.value = null;
       EmotionBackmailService.notificationMessage.value = null;
     });
 
     await tester.pumpWidget(const TerpsichoreApp());
 
-    expect(find.text('已連續登入 6 天'), findsOneWidget);
+    expect(find.text('目前連續登入 6 天'), findsOneWidget);
+    expect(find.text('最高連續登入 12 天'), findsOneWidget);
     expect(find.text('第六天的通知台詞'), findsOneWidget);
   });
 
@@ -139,9 +151,11 @@ void main() {
     tester,
   ) async {
     EmotionBackmailService.onlineStreak.value = 2;
+    EmotionBackmailService.bestOnlineStreak.value = 8;
     EmotionBackmailService.language.value = AppLanguage.traditionalChinese;
     addTearDown(() {
       EmotionBackmailService.onlineStreak.value = null;
+      EmotionBackmailService.bestOnlineStreak.value = null;
       EmotionBackmailService.notificationMessage.value = null;
       EmotionBackmailService.language.value = AppLanguage.traditionalChinese;
     });
@@ -150,7 +164,8 @@ void main() {
     EmotionBackmailService.language.value = AppLanguage.english;
     await tester.pump();
 
-    expect(find.text('2-day login streak'), findsOneWidget);
+    expect(find.text('Current login streak: 2 days'), findsOneWidget);
+    expect(find.text('Best login streak: 8 days'), findsOneWidget);
     expect(find.text('Choose a practice mode'), findsOneWidget);
   });
 }

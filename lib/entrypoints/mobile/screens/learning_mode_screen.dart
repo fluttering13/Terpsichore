@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:async';
 import 'package:camera/camera.dart';
@@ -98,6 +99,9 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       rate: _rate.value,
     );
     engine.practice('learning', _eggPlaybackActive || _recording);
+    if (player.value.isPlaying && !player.value.isBuffering) {
+      engine.projectPlayback('learning');
+    }
   }
 
   Future<void> _pickVideo() async {
@@ -114,6 +118,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       return;
     }
     _eggPlaybackActive = false;
+    EasterEggService.instance.engine.clearProject('learning');
     EasterEggService.instance.engine.clearPause();
     _restCountdownGeneration++;
     setState(() {
@@ -175,9 +180,13 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
         _savedProjectId = project.id;
         _savedProjectName = project.name;
       });
-      _showProjectMessage('已儲存「${project.name}」');
+      _showProjectMessage(appText(context, "已儲存「{0}」", [project.name]));
     } catch (error) {
-      if (mounted) _showProjectMessage('儲存失敗：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "儲存失敗：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
@@ -260,9 +269,11 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       oldSeeker?.dispose();
       old?.removeListener(_onPlayerChanged);
       await old?.dispose();
-      _showProjectMessage('已開啟「${project.name}」');
+      if (!mounted) return;
+      _showProjectMessage(appText(context, "已開啟「{0}」", [project.name]));
+      EasterEggService.instance.projectLoaded('learning', project);
     } catch (error) {
-      if (mounted) _showProjectMessage('無法開啟專案，請確認原始影片仍存在。');
+      if (mounted) _showProjectMessage(appText(context, "無法開啟專案，請確認原始影片仍存在。"));
     }
   }
 
@@ -298,6 +309,10 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
     );
     if (decision.type == LoopActionType.none) return;
     _handlingLoop = true;
+    final restSegment = _eggSegment;
+    final restEpoch = EasterEggService.instance.engine.activityEpoch;
+    final eligibleRest =
+        EasterEggService.instance.learningVisible && _eggPlaybackActive;
     if (EasterEggService.instance.learningVisible && _eggPlaybackActive) {
       EasterEggService.instance.engine.completedLoop('learning', _eggSegment);
     }
@@ -307,6 +322,16 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
         await player?.pause();
         final completed = await _showRestCountdown(decision.wait, player);
         if (!completed) return;
+        if (eligibleRest &&
+            EasterEggService.instance.learningVisible &&
+            restEpoch == EasterEggService.instance.engine.activityEpoch &&
+            restSegment == _eggSegment) {
+          EasterEggService.instance.engine.restedLoop(
+            'learning',
+            restSegment,
+            decision.wait,
+          );
+        }
       }
       if (mounted && identical(player, _player)) {
         await player?.seekTo(decision.seekTo!);
@@ -371,9 +396,9 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       return;
     }
     if (_position <= _firstEightStart!) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('第一個八的終點必須在起點之後')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(appText(context, "第一個八的終點必須在起點之後"))),
+      );
       return;
     }
     final firstEightStart = _firstEightStart!;
@@ -419,16 +444,20 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       EasterEggService.instance.exportCompleted();
       if (!mounted) return;
       final message = _recordingOutput == RecordingOutput.dancerOnly
-          ? '已儲存 B：$path'
-          : '已儲存 B；A+B 合成引擎將在下一階段接入';
+          ? appText(context, "已儲存 B：{0}", [path])
+          : appText(context, "已儲存 B；A+B 合成引擎將在下一階段接入");
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('錄影儲存失敗：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            appText(context, "錄影儲存失敗：{0}", [appError(context, error)]),
+          ),
+        ),
+      );
     }
   }
 
@@ -482,7 +511,9 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                         IconButton.filledTonal(
                           tooltip: english
                               ? (_mirrorA ? 'Unmirror A' : 'Mirror A')
-                              : (_mirrorA ? '取消 A 鏡像' : '鏡像翻轉 A'),
+                              : (_mirrorA
+                                    ? appText(context, "取消 A 鏡像")
+                                    : appText(context, "鏡像翻轉 A")),
                           isSelected: _mirrorA,
                           onPressed: () {
                             EasterEggService.instance.mirror();
@@ -503,13 +534,19 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined,
                           ),
-                          label: Text(_showCameraB ? '關閉 B' : '顯示 B'),
+                          label: Text(
+                            _showCameraB
+                                ? appText(context, "關閉 B")
+                                : appText(context, "顯示 B"),
+                          ),
                         ),
                         const SizedBox(width: 8),
                         IconButton.filled(
                           tooltip: _showCameraB
-                              ? (_recording ? '停止錄影' : '開始錄影')
-                              : '請先顯示 B 鏡頭',
+                              ? (_recording
+                                    ? appText(context, "停止錄影")
+                                    : appText(context, "開始錄影"))
+                              : appText(context, "請先顯示 B 鏡頭"),
                           style: IconButton.styleFrom(
                             backgroundColor: _recording ? Colors.red : null,
                           ),
@@ -565,7 +602,12 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      beat?.label ?? '八拍未校正',
+                      beat == null
+                          ? appText(context, "八拍未校正")
+                          : appText(context, "第 {0} 個八・第 {1} 拍", [
+                              beat.eight,
+                              beat.beat,
+                            ]),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium,
@@ -699,7 +741,7 @@ final class _RestCountdownOverlay extends StatelessWidget {
   Widget build(BuildContext context) => IgnorePointer(
     child: Semantics(
       liveRegion: true,
-      label: '休息，剩餘 $seconds 秒',
+      label: appText(context, "休息，剩餘 {0} 秒", [seconds]),
       child: ColoredBox(
         color: Colors.black.withValues(alpha: 0.68),
         child: Center(
@@ -709,7 +751,7 @@ final class _RestCountdownOverlay extends StatelessWidget {
               const Icon(Icons.self_improvement, size: 44, color: Colors.white),
               const SizedBox(height: 8),
               Text(
-                '休息',
+                appText(context, "休息"),
                 style: Theme.of(
                   context,
                 ).textTheme.headlineSmall?.copyWith(color: Colors.white),
@@ -729,7 +771,10 @@ final class _RestCountdownOverlay extends StatelessWidget {
                   ),
                 ),
               ),
-              const Text('下一輪即將開始', style: TextStyle(color: Colors.white70)),
+              Text(
+                appText(context, "下一輪即將開始"),
+                style: TextStyle(color: Colors.white70),
+              ),
             ],
           ),
         ),
@@ -771,7 +816,7 @@ final class _BottomLearningSettings extends StatelessWidget {
                     children: [
                       const Icon(Icons.tune, size: 18),
                       const SizedBox(width: 7),
-                      const Flexible(child: Text('練習・循環・八拍設定')),
+                      Flexible(child: Text(appText(context, "練習・循環・八拍設定"))),
                       const SizedBox(width: 7),
                       Icon(
                         expanded
@@ -865,9 +910,15 @@ final class _SettingsPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('練習設定', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                appText(context, "練習設定"),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const Spacer(),
-              TextButton(onPressed: onPickVideo, child: const Text('更換影片')),
+              TextButton(
+                onPressed: onPickVideo,
+                child: Text(appText(context, "更換影片")),
+              ),
             ],
           ),
           PlaybackRateControl(value: rate, onChanged: onRateChanged),
@@ -876,20 +927,23 @@ final class _SettingsPanel extends StatelessWidget {
               Expanded(
                 child: SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('重複循環'),
+                  title: Text(appText(context, "重複循環")),
                   value: repeat,
                   onChanged: onRepeatChanged,
                 ),
               ),
               IconButton.filledTonal(
-                tooltip: '回到循環開頭',
+                tooltip: appText(context, "回到循環開頭"),
                 onPressed: onSeekToLoopStart,
                 icon: const Icon(Icons.skip_previous),
               ),
             ],
           ),
           if (eightGrid != null && maximumEight > 0) ...[
-            Text('用八拍快速定位', style: Theme.of(context).textTheme.titleSmall),
+            Text(
+              appText(context, "用八拍快速定位"),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
             const SizedBox(height: 6),
             _EightRangeLocator(
               startEight: loopStartEight,
@@ -899,13 +953,16 @@ final class _SettingsPanel extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '選擇後會更新下方時間軸；時間軸仍可拖曳細調。',
+              appText(context, "選擇後會更新下方時間軸；時間軸仍可拖曳細調。"),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
           ],
           Text(
-            '循環 ${formatDuration(loop.start)} – ${formatDuration(loop.end)}',
+            appText(context, "循環 {0} – {1}", [
+              formatDuration(loop.start),
+              formatDuration(loop.end),
+            ]),
           ),
           RangeSlider(
             values: RangeValues(
@@ -924,24 +981,31 @@ final class _SettingsPanel extends StatelessWidget {
             onChangeStart: onLoopChangeStart,
             onChangeEnd: onLoopChangeEnd,
           ),
-          Text('每輪休息 ${rest.inSeconds} 秒'),
+          Text(appText(context, "每輪休息 {0} 秒", [rest.inSeconds])),
           Slider(
             value: rest.inSeconds.toDouble(),
             max: 30,
             divisions: 30,
-            label: '${rest.inSeconds} 秒',
+            label: appText(context, "{0} 秒", [rest.inSeconds]),
             onChanged: (value) =>
                 onRestChanged(Duration(seconds: value.round())),
           ),
           const Divider(),
-          Text('校正八拍', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            appText(context, "校正八拍"),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 6),
           Text(
             firstEightStart == null
-                ? '將影片停在第一個「1」拍並標記起點。'
+                ? appText(context, "將影片停在第一個「1」拍並標記起點。")
                 : grid == null
-                ? '起點 ${formatDuration(firstEightStart!)}；停在下一個「1」拍並標記終點。'
-                : '每拍 ${grid!.beatLength.inMilliseconds} ms',
+                ? appText(context, "起點 {0}；停在下一個「1」拍並標記終點。", [
+                    formatDuration(firstEightStart!),
+                  ])
+                : appText(context, "每拍 {0} ms", [
+                    grid!.beatLength.inMilliseconds,
+                  ]),
           ),
           Wrap(
             spacing: 8,
@@ -949,19 +1013,28 @@ final class _SettingsPanel extends StatelessWidget {
               FilledButton.tonalIcon(
                 onPressed: onMarkEight,
                 icon: const Icon(Icons.flag_outlined),
-                label: Text(firstEightStart == null ? '標記起點' : '標記終點'),
+                label: Text(
+                  firstEightStart == null
+                      ? appText(context, "標記起點")
+                      : appText(context, "標記終點"),
+                ),
               ),
-              TextButton(onPressed: onResetEight, child: const Text('重設')),
+              TextButton(
+                onPressed: onResetEight,
+                child: Text(appText(context, "重設")),
+              ),
             ],
           ),
           const Divider(),
           DropdownButtonFormField<RecordingOutput>(
             initialValue: recordingOutput,
-            decoration: const InputDecoration(labelText: '錄影輸出'),
+            decoration: InputDecoration(labelText: appText(context, "錄影輸出")),
             items: RecordingOutput.values
                 .map(
-                  (value) =>
-                      DropdownMenuItem(value: value, child: Text(value.label)),
+                  (value) => DropdownMenuItem(
+                    value: value,
+                    child: Text(appText(context, value.label)),
+                  ),
                 )
                 .toList(),
             onChanged: (value) {
@@ -993,7 +1066,7 @@ final class _EightRangeLocator extends StatelessWidget {
       children: [
         Expanded(
           child: _EightStepper(
-            label: '從',
+            label: appText(context, "從"),
             value: startEight,
             canDecrease: startEight > 1,
             canIncrease: startEight < maximum,
@@ -1004,13 +1077,13 @@ final class _EightRangeLocator extends StatelessWidget {
             },
           ),
         ),
-        const Padding(
+        Padding(
           padding: EdgeInsets.symmetric(horizontal: 6),
-          child: Text('到'),
+          child: Text(appText(context, "到")),
         ),
         Expanded(
           child: _EightStepper(
-            label: '到',
+            label: appText(context, "到"),
             value: endEight,
             canDecrease: endEight > startEight,
             canIncrease: endEight < maximum,
@@ -1052,13 +1125,13 @@ final class _EightStepper extends StatelessWidget {
         children: [
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: '上一個八',
+            tooltip: appText(context, "上一個八"),
             onPressed: canDecrease ? onDecrease : null,
             icon: const Icon(Icons.remove),
           ),
           Expanded(
             child: Text(
-              '第 $value 個八',
+              appText(context, "第 {0} 個八", [value]),
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.fade,
@@ -1066,7 +1139,7 @@ final class _EightStepper extends StatelessWidget {
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: '下一個八',
+            tooltip: appText(context, "下一個八"),
             onPressed: canIncrease ? onIncrease : null,
             icon: const Icon(Icons.add),
           ),
@@ -1094,20 +1167,23 @@ final class _EmptyLearningState extends StatelessWidget {
         children: [
           const Icon(Icons.video_library_outlined, size: 72),
           const SizedBox(height: 16),
-          Text('選一支舞蹈影片開始練習', style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            appText(context, "選一支舞蹈影片開始練習"),
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: 8),
-          const Text('影片與前鏡頭會同時顯示，方便即時核對動作。'),
+          Text(appText(context, "影片與前鏡頭會同時顯示，方便即時核對動作。")),
           const SizedBox(height: 20),
           FilledButton.icon(
             onPressed: onPickVideo,
             icon: const Icon(Icons.add),
-            label: const Text('選擇影片'),
+            label: Text(appText(context, "選擇影片")),
           ),
           const SizedBox(height: 8),
           TextButton.icon(
             onPressed: onOpenProjects,
             icon: const Icon(Icons.folder_open_outlined),
-            label: const Text('開啟已儲存練習'),
+            label: Text(appText(context, "開啟已儲存練習")),
           ),
         ],
       ),

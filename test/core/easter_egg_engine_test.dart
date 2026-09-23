@@ -20,7 +20,7 @@ void main() {
       r'彩蛋名稱：([^\r\n]+)',
     ).allMatches(File('egg.md').readAsStringSync()).map((match) => match[1]);
     expect(easterEggs.values.map((egg) => egg.title), unorderedEquals(names));
-    expect(easterEggs.length, 28);
+    expect(easterEggs.length, 40);
   });
 
   for (final id in [

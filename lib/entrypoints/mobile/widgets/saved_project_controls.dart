@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/saved_projects/saved_project.dart';
@@ -23,7 +24,7 @@ final class SavedProjectControls extends StatelessWidget {
     children: [
       IconButton(
         visualDensity: VisualDensity.compact,
-        tooltip: '開啟已儲存${mode.label}',
+        tooltip: appText(context, "開啟已儲存{0}", [appText(context, mode.label)]),
         onPressed: () async {
           final project = await showSavedProjectLibrary(context, mode: mode);
           if (project != null) onLoad(project);
@@ -32,7 +33,7 @@ final class SavedProjectControls extends StatelessWidget {
       ),
       IconButton(
         visualDensity: VisualDensity.compact,
-        tooltip: '儲存目前${mode.label}',
+        tooltip: appText(context, "儲存目前{0}", [appText(context, mode.label)]),
         onPressed: canSave ? onSave : null,
         icon: const Icon(Icons.save_outlined),
       ),
@@ -84,23 +85,23 @@ final class _ProjectNameDialogState extends State<_ProjectNameDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.title),
+    title: Text(appText(context, widget.title)),
     content: TextField(
       controller: _controller,
       autofocus: true,
       maxLength: 40,
-      decoration: const InputDecoration(
-        labelText: '專案名稱',
-        hintText: '例如：Hip Hop 第一段',
+      decoration: InputDecoration(
+        labelText: appText(context, "專案名稱"),
+        hintText: appText(context, "例如：Hip Hop 第一段"),
       ),
       onSubmitted: (_) => _submit(),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(appText(context, "取消")),
       ),
-      FilledButton(onPressed: _submit, child: const Text('儲存')),
+      FilledButton(onPressed: _submit, child: Text(appText(context, "儲存"))),
     ],
   );
 }
@@ -142,7 +143,7 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
     final name = await requestProjectName(
       context,
       initialValue: project.name,
-      title: '重新命名專案',
+      title: appText(context, "重新命名專案"),
     );
     if (name == null) return;
     await _store.rename(project, name);
@@ -153,16 +154,18 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('刪除專案？'),
-        content: Text('「${project.name}」將從已儲存專案中移除。媒體原始檔不會被刪除。'),
+        title: Text(appText(context, "刪除專案？")),
+        content: Text(
+          appText(context, "「{0}」將從已儲存專案中移除。媒體原始檔不會被刪除。", [project.name]),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
+            child: Text(appText(context, "取消")),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('刪除'),
+            child: Text(appText(context, "刪除")),
           ),
         ],
       ),
@@ -183,12 +186,14 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
             children: [
               Expanded(
                 child: Text(
-                  '已儲存的${widget.mode.label}',
+                  appText(context, "已儲存的{0}", [
+                    appText(context, widget.mode.label),
+                  ]),
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
               IconButton(
-                tooltip: '關閉',
+                tooltip: appText(context, "關閉"),
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
               ),
@@ -203,11 +208,13 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return Center(child: Text('無法讀取專案：${snapshot.error}'));
+                return Center(
+                  child: Text(appText(context, "無法讀取專案：{0}", [snapshot.error])),
+                );
               }
               final projects = snapshot.data ?? const [];
               if (projects.isEmpty) {
-                return const Center(child: Text('尚未儲存任何專案'));
+                return Center(child: Text(appText(context, "尚未儲存任何專案")));
               }
               return ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
@@ -220,7 +227,9 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
                       leading: const Icon(Icons.description_outlined),
                       title: Text(project.name),
                       subtitle: Text(
-                        '更新於 ${_formatDate(project.updatedAt.toLocal())}',
+                        appText(context, "更新於 {0}", [
+                          _formatDate(project.updatedAt.toLocal()),
+                        ]),
                       ),
                       onTap: () => Navigator.pop(context, project),
                       trailing: PopupMenuButton<String>(
@@ -228,9 +237,15 @@ final class _SavedProjectLibraryState extends State<_SavedProjectLibrary> {
                           if (value == 'rename') _rename(project);
                           if (value == 'delete') _delete(project);
                         },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'rename', child: Text('重新命名')),
-                          PopupMenuItem(value: 'delete', child: Text('刪除')),
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'rename',
+                            child: Text(appText(context, "重新命名")),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text(appText(context, "刪除")),
+                          ),
                         ],
                       ),
                     ),

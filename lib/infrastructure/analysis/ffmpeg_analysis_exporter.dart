@@ -11,11 +11,14 @@ final class FfmpegAnalysisExporter implements AnalysisExporter {
   const FfmpegAnalysisExporter();
 
   @override
-  Future<AnalysisExportResult> export(AnalysisExportRequest request) async {
+  Future<AnalysisExportResult> export(
+    AnalysisExportRequest request, {
+    Directory? outputDirectory,
+  }) async {
     final project = request.project;
-    final directory = Directory(
-      '${(await getApplicationDocumentsDirectory()).path}/exports',
-    );
+    final directory =
+        outputDirectory ??
+        Directory('${(await getApplicationDocumentsDirectory()).path}/exports');
     await directory.create(recursive: true);
     final outputPath =
         '${directory.path}/terpsichore_${DateTime.now().millisecondsSinceEpoch}.mp4';

@@ -59,6 +59,49 @@ PoseSequence sequence(
 }
 
 void main() {
+  test('sub-second moving clips align without a minimum one-second trim', () {
+    final a = sequence(1, (t) => t * 4);
+    final result = solvePoseAlignment(
+      PoseAlignmentRequest(
+        a: a,
+        b: a,
+        aStart: 0,
+        aEnd: .5,
+        aRate: 1,
+        bStart: 0,
+        bEnd: .5,
+        bAnchorStart: 0,
+        bAnchorEnd: .5,
+        searchFraction: 0,
+      ),
+    );
+    expect(result, isNotNull);
+    expect(result!.bStart, closeTo(0, 1e-8));
+    expect(result.bRate, closeTo(1, 1e-8));
+    expect(result.coverage, 1);
+    expect(result.error, closeTo(0, 1e-8));
+  });
+
+  test('short clips still reject static poses and empty trims', () {
+    for (final end in [0.0, -.1, .5]) {
+      final still = sequence(1, (_) => 0);
+      expect(
+        solvePoseAlignment(
+          PoseAlignmentRequest(
+            a: still,
+            b: still,
+            aStart: 0,
+            aEnd: end,
+            aRate: 1,
+            bStart: 0,
+            bEnd: 1,
+          ),
+        ),
+        isNull,
+      );
+    }
+  });
+
   for (final rate in [3.68 / 1.37, 4.0, 4.1]) {
     test(
       'fixed endpoints support AB rate $rate within the four-times limit',

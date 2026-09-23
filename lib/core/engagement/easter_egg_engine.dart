@@ -18,6 +18,10 @@ final class EasterEggEngine {
   final _loops = <String, int>{};
   final _segments = <String, String>{};
   final _practice = <String, DateTime>{};
+  final _listening = <String, Map<String, DateTime>>{};
+  final _restedLoops = <String, int>{};
+  final _projectEggs = <String, Set<String>>{};
+  int activityEpoch = 0;
   bool _slowPractice = false;
   DateTime? _homeSince;
   DateTime? _pausedSince;
@@ -53,12 +57,15 @@ final class EasterEggEngine {
   }
 
   void open() {
+    activityEpoch++;
     _shown.clear();
     _counts.clear();
     _windows.clear();
     _loops.clear();
     _segments.clear();
     _practice.clear();
+    _listening.clear();
+    _restedLoops.clear();
     _slowPractice = false;
     _homeSince = null;
     clearPause();
@@ -82,6 +89,13 @@ final class EasterEggEngine {
 
   void tick() {
     final now = clock();
+    for (final timers in _listening.values) {
+      for (final entry in timers.entries) {
+        if (now.difference(entry.value) >= const Duration(seconds: 30)) {
+          trigger(entry.key);
+        }
+      }
+    }
     if (_homeSince != null &&
         now.difference(_homeSince!) >= const Duration(minutes: 3)) {
       trigger('gaze');
@@ -141,6 +155,80 @@ final class EasterEggEngine {
     if (_segments[mode] == key) return;
     _segments[mode] = key;
     _loops[mode] = 0;
+    _restedLoops[mode] = 0;
+    _listening.remove(mode);
+  }
+
+  /// Only report actual, ready playback; pause, buffering and selection changes
+  /// end the continuous listening interval.
+  void listening(String mode, Set<String> eggs) {
+    final timers = _listening.putIfAbsent(mode, () => {});
+    timers.removeWhere((id, _) => !eggs.contains(id));
+    for (final id in eggs) {
+      timers.putIfAbsent(id, clock);
+    }
+    tick();
+  }
+
+  void musicPlayback({
+    required bool playing,
+    required bool separated,
+    required bool original,
+    required Set<String> stems,
+  }) {
+    final active = playing && separated && !original && stems.isNotEmpty;
+    listening('music', {
+      if (active && !stems.contains('vocals')) 'vocalVacation',
+      if (active && stems.length == 1 && stems.contains('drums')) 'heartbeat',
+      if (active && stems.length == 1 && stems.contains('bass')) 'bassLover',
+    });
+    if (active &&
+        stems.containsAll({
+          'drums',
+          'bass',
+          'vocals',
+          'guitar',
+          'piano',
+          'other',
+        })) {
+      trigger('sixGods');
+    }
+    if (playing) projectPlayback('music');
+  }
+
+  void restedLoop(String mode, String key, Duration rest) {
+    segment(mode, key);
+    if (rest < const Duration(seconds: 10)) {
+      _restedLoops[mode] = 0;
+      return;
+    }
+    final count = (_restedLoops[mode] ?? 0) + 1;
+    _restedLoops[mode] = count;
+    if (count >= 5) trigger('intermission');
+  }
+
+  void projectLoaded(String mode, DateTime savedAt, DateTime lastOpened) {
+    final now = clock();
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    final saved = savedAt.toLocal();
+    _projectEggs[mode] = {
+      if (DateTime(saved.year, saved.month, saved.day) == yesterday)
+        'yesterday',
+      if (now.difference(lastOpened) >= const Duration(days: 30)) 'reunion',
+    };
+  }
+
+  void clearProject(String mode) => _projectEggs.remove(mode);
+
+  void projectPlayback(String mode) {
+    for (final id in _projectEggs.remove(mode) ?? <String>{}) {
+      trigger(id);
+    }
+  }
+
+  void stopListening() {
+    activityEpoch++;
+    _listening.clear();
   }
 
   void completedLoop(String mode, String key) {
@@ -149,6 +237,8 @@ final class EasterEggEngine {
   }
 
   void suspend() {
+    stopListening();
+    _restedLoops.clear();
     for (final mode in _practice.keys.toList()) {
       practice(mode, false, playbackStopped: false);
     }

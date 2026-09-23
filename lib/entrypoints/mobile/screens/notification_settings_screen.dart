@@ -1,5 +1,7 @@
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'package:flutter/material.dart';
+import '../localization/app_text.dart';
+import 'package:terpsichore/core/engagement/easter_egg_catalog.dart';
 import 'package:terpsichore/infrastructure/engagement/emotion_backmail_service.dart';
 
 final class NotificationSettingsScreen extends StatefulWidget {
@@ -135,6 +137,7 @@ final class _NotificationSettingsScreenState
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () async {
+                  EasterEggService.instance.count('oracleSoundcheck', 3);
                   try {
                     final easterEgg =
                         await EmotionBackmailService.testNotification();
@@ -154,9 +157,15 @@ final class _NotificationSettingsScreenState
                     );
                   } catch (error) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text('測試排程失敗：$error')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            appText(context, '測試排程失敗：{0}', [
+                              appError(context, error),
+                            ]),
+                          ),
+                        ),
+                      );
                     }
                   }
                 },
@@ -168,6 +177,63 @@ final class _NotificationSettingsScreenState
                     ? 'The default time is 18:00. Turning notifications off also cancels scheduled reminders.'
                     : '預設時間為下午 6:00。關閉通知時，也會取消已排程的提醒。',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 24),
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: EasterEggService.instance.collected,
+                builder: (context, collected, _) {
+                  final catalog = _english ? easterEggsEnglish : easterEggs;
+                  final entries = catalog.entries
+                      .where((entry) => collected.contains(entry.key))
+                      .toList();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        '${_english ? 'Collected easter eggs: ' : '已收集的彩蛋：'}${entries.length} / ${catalog.length}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      if (entries.isEmpty)
+                        Text(
+                          _english
+                              ? 'No easter eggs collected yet. Explore and practice to discover them!'
+                              : '尚未收集到彩蛋，繼續探索與練習來發現吧！',
+                        ),
+                      for (final entry in entries)
+                        Card(
+                          child: ExpansionTile(
+                            key: PageStorageKey('collected-egg-${entry.key}'),
+                            leading: const Icon(Icons.auto_awesome_outlined),
+                            title: Text(entry.value.title),
+                            expandedCrossAxisAlignment:
+                                CrossAxisAlignment.stretch,
+                            childrenPadding: const EdgeInsets.fromLTRB(
+                              16,
+                              0,
+                              16,
+                              16,
+                            ),
+                            children: [
+                              Text(
+                                _english ? 'Displayed line' : '呈現台詞',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(entry.value.message),
+                              const SizedBox(height: 12),
+                              Text(
+                                _english ? 'How to trigger' : '觸發方式',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(entry.value.trigger),
+                            ],
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ],
           ),

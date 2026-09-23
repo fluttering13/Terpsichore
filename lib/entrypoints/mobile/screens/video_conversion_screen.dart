@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:io';
 
@@ -107,7 +108,7 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
       _error = null;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('正在轉換影片，時間依影片長度而定，請保持 App 開啟…')),
+      SnackBar(content: Text(appText(context, "正在轉換影片，時間依影片長度而定，請保持 App 開啟…"))),
     );
     try {
       final result = await _converter.convert(
@@ -162,8 +163,12 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
     );
     if (!mounted) return;
     final message = switch (result) {
-      AnalysisSavedToGallery() => '已儲存至裝置媒體庫的 Terpsichore 相簿',
-      AnalysisGallerySaveFailed(:final reason) => '無法儲存至媒體庫：$reason',
+      AnalysisSavedToGallery() => appText(context, "已儲存至裝置媒體庫的 Terpsichore 相簿"),
+      AnalysisGallerySaveFailed(:final reason) => appText(
+        context,
+        "無法儲存至媒體庫：{0}",
+        [appError(context, reason)],
+      ),
     };
     setState(() => _savedToGallery = result is AnalysisSavedToGallery);
     ScaffoldMessenger.of(
@@ -178,8 +183,10 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
     await SharePlus.instance.share(
       ShareParams(
         files: [XFile(path, mimeType: _outputFormat.mimeType)],
-        title: 'Terpsichore 影片轉檔',
-        text: 'Terpsichore 轉換後的 ${_outputFormat.label} 影片',
+        title: appText(context, "Terpsichore 影片轉檔"),
+        text: appText(context, "Terpsichore 轉換後的 {0} 影片", [
+          _outputFormat.label,
+        ]),
         sharePositionOrigin: box == null
             ? null
             : box.localToGlobal(Offset.zero) & box.size,
@@ -200,12 +207,16 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
         SliverAppBar(
           pinned: true,
           automaticallyImplyLeading: false,
-          title: const Text('影片轉檔'),
+          title: Text(appText(context, "影片轉檔")),
           actions: [
             TextButton.icon(
               onPressed: _converting || _inspecting ? null : _pickVideo,
               icon: const Icon(Icons.video_file_outlined),
-              label: Text(_source == null ? '選擇影片' : '更換影片'),
+              label: Text(
+                _source == null
+                    ? appText(context, "選擇影片")
+                    : appText(context, "更換影片"),
+              ),
             ),
             const SizedBox(width: 8),
           ],
@@ -291,7 +302,7 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
                       children: [
                         const Icon(Icons.error_outline),
                         const SizedBox(width: 10),
-                        Expanded(child: Text(error)),
+                        Expanded(child: Text(appError(context, error))),
                       ],
                     ),
                   ),
@@ -316,7 +327,9 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
                       )
                     : const Icon(Icons.sync),
                 label: Text(
-                  _converting ? '正在轉檔…' : '轉換成 ${_outputFormat.label}',
+                  _converting
+                      ? appText(context, "正在轉檔…")
+                      : appText(context, "轉換成 {0}", [_outputFormat.label]),
                 ),
               ),
               if (_outputPath != null) ...[
@@ -327,23 +340,31 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Row(
+                        Row(
                           children: [
                             Icon(Icons.check_circle, color: Colors.greenAccent),
                             SizedBox(width: 8),
-                            Text('轉檔完成'),
+                            Text(appText(context, "轉檔完成")),
                           ],
                         ),
                         const SizedBox(height: 12),
                         if (_outputBytes case final bytes?) ...[
                           Text(
-                            '輸出大小：${_fileSize(bytes)}'
-                            '${_inputBytes == null ? '' : '（原始 ${_fileSize(_inputBytes!)}）'}',
+                            appText(context, "輸出大小：{0}{1}", [
+                              _fileSize(bytes),
+                              _inputBytes == null
+                                  ? ''
+                                  : appText(context, "（原始 {0}）", [
+                                      _fileSize(_inputBytes!),
+                                    ]),
+                            ]),
                           ),
                           const SizedBox(height: 12),
                         ],
                         Text(
-                          _savedToGallery ? '已自動儲存至媒體庫' : '自動儲存失敗，可按下方按鈕重試。',
+                          _savedToGallery
+                              ? appText(context, "已自動儲存至媒體庫")
+                              : appText(context, "自動儲存失敗，可按下方按鈕重試。"),
                         ),
                         const SizedBox(height: 12),
                         Wrap(
@@ -354,12 +375,12 @@ final class _VideoConversionScreenState extends State<VideoConversionScreen> {
                               FilledButton.tonalIcon(
                                 onPressed: _saveToGallery,
                                 icon: const Icon(Icons.save_alt),
-                                label: const Text('重試儲存'),
+                                label: Text(appText(context, "重試儲存")),
                               ),
                             OutlinedButton.icon(
                               onPressed: _share,
                               icon: const Icon(Icons.share_outlined),
-                              label: const Text('分享／另存'),
+                              label: Text(appText(context, "分享／另存")),
                             ),
                           ],
                         ),
@@ -415,7 +436,9 @@ final class _ConversionProgressCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    savingToGallery ? '轉檔完成，正在儲存至媒體庫…' : '影片轉檔進度',
+                    savingToGallery
+                        ? appText(context, "轉檔完成，正在儲存至媒體庫…")
+                        : appText(context, "影片轉檔進度"),
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
@@ -436,7 +459,10 @@ final class _ConversionProgressCard extends StatelessWidget {
             if (!savingToGallery && totalDuration != null) ...[
               const SizedBox(height: 8),
               Text(
-                '已處理 ${_duration(processed)} / ${_duration(totalDuration)}',
+                appText(context, "已處理 {0} / {1}", [
+                  _duration(processed),
+                  _duration(totalDuration),
+                ]),
                 textAlign: TextAlign.end,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -481,16 +507,16 @@ final class _SourceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '選擇要轉換的影片',
+                  appText(context, "選擇要轉換的影片"),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 6),
-                const Text('輸入格式會自動偵測，支援 MOV、MP4、MKV、AVI 等常見影片。'),
+                Text(appText(context, "輸入格式會自動偵測，支援 MOV、MP4、MKV、AVI 等常見影片。")),
                 const SizedBox(height: 16),
                 FilledButton.tonalIcon(
                   onPressed: onPick,
                   icon: const Icon(Icons.folder_open),
-                  label: const Text('選擇影片'),
+                  label: Text(appText(context, "選擇影片")),
                 ),
               ],
             )
@@ -542,14 +568,14 @@ final class _SourceCard extends StatelessWidget {
                 ),
                 const Divider(height: 26),
                 if (inspecting)
-                  const Row(
+                  Row(
                     children: [
                       SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                       SizedBox(width: 10),
-                      Text('正在自動偵測輸入格式…'),
+                      Text(appText(context, "正在自動偵測輸入格式…")),
                     ],
                   )
                 else if (mediaInfo case final info?)
@@ -557,20 +583,29 @@ final class _SourceCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _InfoChip(label: '格式', value: info.container),
+                      _InfoChip(
+                        label: appText(context, "格式"),
+                        value: info.container,
+                      ),
                       if (info.videoCodec case final codec?)
-                        _InfoChip(label: '影像', value: codec),
+                        _InfoChip(label: appText(context, "影像"), value: codec),
                       if (info.audioCodec case final codec?)
-                        _InfoChip(label: '聲音', value: codec),
+                        _InfoChip(label: appText(context, "聲音"), value: codec),
                       if (info.width case final width?)
                         _InfoChip(
-                          label: '解析度',
+                          label: appText(context, "解析度"),
                           value: '$width × ${info.height ?? '?'}',
                         ),
                       if (info.duration case final duration?)
-                        _InfoChip(label: '長度', value: _duration(duration)),
+                        _InfoChip(
+                          label: appText(context, "長度"),
+                          value: _duration(duration),
+                        ),
                       if (inputBytes case final bytes?)
-                        _InfoChip(label: '上傳大小', value: _fileSize(bytes)),
+                        _InfoChip(
+                          label: appText(context, "上傳大小"),
+                          value: _fileSize(bytes),
+                        ),
                     ],
                   ),
               ],
@@ -615,14 +650,19 @@ final class _OutputCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('輸出格式', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              appText(context, "輸出格式"),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 4),
-            const Text('MP4 相容性最佳；MOV 適合 Apple 裝置與剪輯軟體。'),
+            Text(appText(context, "MP4 相容性最佳；MOV 適合 Apple 裝置與剪輯軟體。")),
             const SizedBox(height: 14),
             DropdownButtonFormField<VideoOutputFormat>(
+              isExpanded: true,
+              itemHeight: null,
               initialValue: value,
-              decoration: const InputDecoration(
-                labelText: '轉換成',
+              decoration: InputDecoration(
+                labelText: appText(context, "轉換成"),
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.output),
               ),
@@ -642,9 +682,11 @@ final class _OutputCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<VideoResolution>(
+              isExpanded: true,
+              itemHeight: null,
               initialValue: resolution,
-              decoration: const InputDecoration(
-                labelText: '輸出解析度',
+              decoration: InputDecoration(
+                labelText: appText(context, "輸出解析度"),
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.aspect_ratio_outlined),
               ),
@@ -656,8 +698,10 @@ final class _OutputCard extends StatelessWidget {
                         item == VideoResolution.p1080,
                   )
                   .map(
-                    (item) =>
-                        DropdownMenuItem(value: item, child: Text(item.label)),
+                    (item) => DropdownMenuItem(
+                      value: item,
+                      child: Text(appText(context, item.label)),
+                    ),
                   )
                   .toList(),
               onChanged: enabled
@@ -670,16 +714,20 @@ final class _OutputCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<VideoCodec>(
+              isExpanded: true,
+              itemHeight: null,
               initialValue: codec,
-              decoration: const InputDecoration(
-                labelText: '影像編碼',
+              decoration: InputDecoration(
+                labelText: appText(context, "影像編碼"),
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.memory_outlined),
               ),
               items: value.supportedCodecs
                   .map(
-                    (item) =>
-                        DropdownMenuItem(value: item, child: Text(item.label)),
+                    (item) => DropdownMenuItem(
+                      value: item,
+                      child: Text(appText(context, item.label)),
+                    ),
                   )
                   .toList(),
               onChanged: enabled
@@ -690,8 +738,8 @@ final class _OutputCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '${dimensions == null ? '' : '預計 ${dimensions.width} × ${dimensions.height} · '}'
-              '${codec.description}${matchesRecommendation ? '（建議）' : ''}',
+              '${dimensions == null ? '' : appText(context, "預計 {0} × {1} · ", [dimensions.width, dimensions.height])}'
+              '${appText(context, codec.description)}${matchesRecommendation ? appText(context, "（建議）") : ''}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: matchesRecommendation
                     ? Theme.of(context).colorScheme.primary
@@ -701,15 +749,20 @@ final class _OutputCard extends StatelessWidget {
             if (!matchesRecommendation) ...[
               const SizedBox(height: 4),
               Text(
-                '${resolution.label} 建議使用 ${recommendedCodec.label}。',
+                appText(context, "{0} 建議使用 {1}。", [
+                  appText(context, resolution.label),
+                  recommendedCodec.label,
+                ]),
                 style: Theme.of(context).textTheme.labelSmall,
               ),
             ],
             const SizedBox(height: 14),
             DropdownButtonFormField<VideoQuality>(
+              isExpanded: true,
+              itemHeight: null,
               initialValue: quality,
-              decoration: const InputDecoration(
-                labelText: '輸出畫質',
+              decoration: InputDecoration(
+                labelText: appText(context, "輸出畫質"),
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.high_quality_outlined),
               ),
@@ -717,7 +770,9 @@ final class _OutputCard extends StatelessWidget {
                   .map(
                     (preset) => DropdownMenuItem(
                       value: preset,
-                      child: Text('${preset.label}｜${preset.description}'),
+                      child: Text(
+                        '${appText(context, preset.label)}｜${appText(context, preset.description)}',
+                      ),
                     ),
                   )
                   .toList(),

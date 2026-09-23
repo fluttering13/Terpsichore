@@ -69,6 +69,36 @@ class LauncherRegressionTest {
         }
     }
 
+    @Test fun testBestStreakSurvivesResetAndAdvancesWithNewRecord() {
+        val day = LocalDate.now()
+        fun open(offset: Long): Map<String, Any> = EmotionBackmailManager.onAppOpened(
+            isolated, day.plusDays(offset).atTime(12, 0)
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        )
+        assertEquals(1, open(0)["bestOnlineStreak"])
+        assertEquals(1, open(0)["bestOnlineStreak"])
+        assertEquals(2, open(1)["bestOnlineStreak"])
+        val reset = open(3)
+        assertEquals(1, reset["onlineStreak"])
+        assertEquals(2, reset["bestOnlineStreak"])
+        assertEquals(2, open(4)["bestOnlineStreak"])
+        assertEquals(3, open(5)["bestOnlineStreak"])
+    }
+
+    @Test fun testBestStreakMigratesExistingRecordBeforeReset() {
+        val day = LocalDate.now()
+        isolated.getSharedPreferences("emotion_backmail", 0).edit()
+            .putInt("online_streak", 42)
+            .putLong("last_open_day", day.minusDays(2).toEpochDay()).commit()
+        val result = EmotionBackmailManager.onAppOpened(
+            isolated, day.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        )
+        assertEquals(1, result["onlineStreak"])
+        assertEquals(42, result["bestOnlineStreak"])
+        assertEquals(42, isolated.getSharedPreferences("emotion_backmail", 0)
+            .getInt("best_online_streak", 0))
+    }
+
     @Test fun testReplacementPreservesSelectedIconAndIsIdempotent() {
         for (alias in listOf("HappyIcon", "BeginIcon", "Sad3Icon")) {
             EmotionBackmailManager.testLauncherIcon(isolated, alias)

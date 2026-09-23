@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:async';
 import 'dart:io';
@@ -82,6 +83,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
   Future<void> _pickMedia() async {
     final source = await _picker.pick();
     if (source == null) return;
+    EasterEggService.instance.engine.clearProject('music');
     await _player.pause();
     _countdownGeneration++;
     _waveformGeneration++;
@@ -230,6 +232,15 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
       'music',
       '${_prepared?.originalWavPath}:${_loop.start}:${_loop.end}',
     );
+    eggs.engine.musicPlayback(
+      playing:
+          _practicing &&
+          _player.playing &&
+          _player.processingState == ProcessingState.ready,
+      separated: _separated != null,
+      original: _selection.original,
+      stems: _selection.stems.map((stem) => stem.name).toSet(),
+    );
     eggs.engine.practice(
       'music',
       (_player.playing &&
@@ -263,6 +274,11 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
     if (decision.action == MusicLoopAction.none) return;
     _handlingLoop = true;
     final eggs = EasterEggService.instance;
+    final restSegment =
+        '${_prepared?.originalWavPath}:${_loop.start}:${_loop.end}';
+    final restEpoch = eggs.engine.activityEpoch;
+    final eligibleRest =
+        eggs.foreground && eggs.page == 3 && !eggs.covered && _player.playing;
     if (eggs.foreground && eggs.page == 3 && !eggs.covered && _player.playing) {
       eggs.engine.completedLoop(
         'music',
@@ -286,6 +302,15 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         }
         if (!mounted || generation != _countdownGeneration) return;
         setState(() => _restCountdown = null);
+        if (eligibleRest &&
+            restEpoch == eggs.engine.activityEpoch &&
+            restSegment ==
+                '${_prepared?.originalWavPath}:${_loop.start}:${_loop.end}' &&
+            eggs.foreground &&
+            eggs.page == 3 &&
+            !eggs.covered) {
+          eggs.engine.restedLoop('music', restSegment, decision.wait);
+        }
       }
       await _player.seek(decision.seekTo!);
       await _player.play();
@@ -348,7 +373,9 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
           _selection = previous;
           _error = error;
         });
-        _showProjectMessage('切換音軌失敗：$error');
+        _showProjectMessage(
+          appText(context, "切換音軌失敗：{0}", [appError(context, error)]),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -411,9 +438,13 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         _savedProjectId = project.id;
         _savedProjectName = project.name;
       });
-      _showProjectMessage('已儲存「${project.name}」');
+      _showProjectMessage(appText(context, "已儲存「{0}」", [project.name]));
     } catch (error) {
-      if (mounted) _showProjectMessage('儲存失敗：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "儲存失敗：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
@@ -438,7 +469,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         duration: Duration(milliseconds: preparedData['durationMs'] as int),
       );
       if (!await File(prepared.originalWavPath).exists()) {
-        throw StateError('找不到已準備的音訊');
+        throw StateError('Prepared audio not found');
       }
       final separatedData = data['separatedPaths'];
       SeparatedStems? separated;
@@ -476,7 +507,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
             selection: selectedStems,
           );
         } else {
-          throw StateError('找不到已分離的聲部檔案');
+          throw StateError('Separated stem files not found');
         }
         await _player.setFilePath(playbackPath);
       }
@@ -517,9 +548,13 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         _savedProjectName = project.name;
       });
       unawaited(_analyzeWaveforms());
-      _showProjectMessage('已開啟「${project.name}」');
+      if (!mounted) return;
+      _showProjectMessage(appText(context, "已開啟「{0}」", [project.name]));
+      EasterEggService.instance.projectLoaded('music', project);
     } catch (error) {
-      if (mounted) _showProjectMessage('無法開啟專案，部分音樂或分軌檔案已不存在。');
+      if (mounted) {
+        _showProjectMessage(appText(context, "無法開啟專案，部分音樂或分軌檔案已不存在。"));
+      }
     }
   }
 
@@ -559,7 +594,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '純音樂練習',
+              appText(context, "純音樂練習"),
               style: Theme.of(context).textTheme.headlineSmall,
             ),
           ),
@@ -572,12 +607,14 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
           TextButton.icon(
             onPressed: _busy ? null : _pickMedia,
             icon: const Icon(Icons.add),
-            label: Text(_source == null ? '匯入' : '更換'),
+            label: Text(
+              _source == null ? appText(context, "匯入") : appText(context, "更換"),
+            ),
           ),
         ],
       ),
       const SizedBox(height: 8),
-      const Text('匯入影片或音訊，選擇原聲，或用 AI 分離並混合六種聲部。'),
+      Text(appText(context, "匯入影片或音訊，選擇原聲，或用 AI 分離並混合六種聲部。")),
       const SizedBox(height: 16),
       if (_source == null)
         _ImportMusicCard(onPressed: _pickMedia)
@@ -592,8 +629,10 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
             title: Text(_source!.name),
             subtitle: Text(
               _prepared == null
-                  ? '正在準備音訊…'
-                  : '長度 ${formatDuration(_prepared!.duration)}',
+                  ? appText(context, "正在準備音訊…")
+                  : appText(context, "長度 {0}", [
+                      formatDuration(_prepared!.duration),
+                    ]),
             ),
           ),
         ),
@@ -610,7 +649,9 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
           color: Theme.of(context).colorScheme.errorContainer,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Text('處理失敗：$_error'),
+            child: Text(
+              appText(context, "處理失敗：{0}", [appError(context, _error)]),
+            ),
           ),
         ),
       ],
@@ -623,12 +664,15 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('選擇練習聲部', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            appText(context, "選擇練習聲部"),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 6),
           ChoiceChip(
             selected: _selection.original,
             avatar: const Icon(Icons.library_music_outlined),
-            label: const Text('原聲'),
+            label: Text(appText(context, "原聲")),
             onSelected: _busy
                 ? null
                 : (_) =>
@@ -643,7 +687,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                   (stem) => FilterChip(
                     selected: _selection.stems.contains(stem),
                     avatar: Icon(_stemIcon(stem)),
-                    label: Text(_stemLabel(stem)),
+                    label: Text(_stemLabel(context, stem)),
                     onSelected: _separated == null || _busy
                         ? null
                         : (_) => setState(
@@ -661,21 +705,21 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                 FilledButton.tonalIcon(
                   onPressed: _busy ? null : _splitStems,
                   icon: const Icon(Icons.graphic_eq),
-                  label: const Text('分離六軌'),
+                  label: Text(appText(context, "分離六軌")),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  '首次使用會下載約 136 MB 模型；處理完全在本機進行。',
+                Text(
+                  appText(context, "首次使用會下載約 136 MB 模型；處理完全在本機進行。"),
                   style: TextStyle(fontSize: 12),
                 ),
               ],
             )
           else
-            const Row(
+            Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
                 SizedBox(width: 6),
-                Text('六軌分離完成，可多選混音'),
+                Text(appText(context, "六軌分離完成，可多選混音")),
               ],
             ),
           const SizedBox(height: 14),
@@ -686,7 +730,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                   ? _startPractice
                   : null,
               icon: const Icon(Icons.play_arrow),
-              label: const Text('進入循環練習'),
+              label: Text(appText(context, "進入循環練習")),
             ),
           ),
         ],
@@ -701,15 +745,17 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         Row(
           children: [
             IconButton(
-              tooltip: '返回聲部選擇',
+              tooltip: appText(context, "返回聲部選擇"),
               onPressed: _leavePractice,
               icon: const Icon(Icons.arrow_back),
             ),
             Expanded(
               child: Text(
                 _selection.original
-                    ? '原聲練習'
-                    : _selection.stems.map(_stemLabel).join('＋'),
+                    ? appText(context, "原聲練習")
+                    : _selection.stems
+                          .map((stem) => _stemLabel(context, stem))
+                          .join('＋'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium,
@@ -721,7 +767,10 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
               onSave: _saveProject,
               onLoad: _loadProject,
             ),
-            TextButton(onPressed: _pickMedia, child: const Text('更換音樂')),
+            TextButton(
+              onPressed: _pickMedia,
+              child: Text(appText(context, "更換音樂")),
+            ),
           ],
         ),
         Expanded(child: _buildWaveformPanel()),
@@ -757,7 +806,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                     children: [
                       const Icon(Icons.tune, size: 18),
                       const SizedBox(width: 7),
-                      const Text('循環練習設定'),
+                      Text(appText(context, "循環練習設定")),
                       const SizedBox(width: 7),
                       Icon(
                         _settingsOpen
@@ -788,22 +837,24 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                                 Expanded(
                                   child: SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
-                                    title: const Text('重複循環'),
+                                    title: Text(appText(context, "重複循環")),
                                     value: _repeat,
                                     onChanged: (value) =>
                                         setState(() => _repeat = value),
                                   ),
                                 ),
                                 IconButton.filledTonal(
-                                  tooltip: '回到循環開頭',
+                                  tooltip: appText(context, "回到循環開頭"),
                                   onPressed: () => _player.seek(_loop.start),
                                   icon: const Icon(Icons.skip_previous),
                                 ),
                               ],
                             ),
                             Text(
-                              '循環 ${formatDuration(_loop.start)} – '
-                              '${formatDuration(_loop.end)}',
+                              appText(context, "循環 {0} – {1}", [
+                                formatDuration(_loop.start),
+                                formatDuration(_loop.end),
+                              ]),
                             ),
                             RangeSlider(
                               values: RangeValues(
@@ -819,12 +870,18 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
                               ),
                               onChanged: _setLoop,
                             ),
-                            Text('循環間休息 ${_rest.inSeconds} 秒'),
+                            Text(
+                              appText(context, "循環間休息 {0} 秒", [
+                                _rest.inSeconds,
+                              ]),
+                            ),
                             Slider(
                               value: _rest.inSeconds.toDouble(),
                               max: 30,
                               divisions: 30,
-                              label: '${_rest.inSeconds} 秒',
+                              label: appText(context, "{0} 秒", [
+                                _rest.inSeconds,
+                              ]),
                               onChanged: (value) => setState(
                                 () => _rest = Duration(seconds: value.round()),
                               ),
@@ -848,7 +905,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
     final tracks = separated == null
         ? [
             _WaveformTrack(
-              label: '原聲',
+              label: appText(context, "原聲"),
               path: prepared.originalWavPath,
               color: Colors.deepPurpleAccent,
               selected: _selection.original,
@@ -858,7 +915,7 @@ final class _MusicPracticeScreenState extends State<MusicPracticeScreen> {
         : MusicStem.values
               .map(
                 (stem) => _WaveformTrack(
-                  label: _stemLabel(stem),
+                  label: _stemLabel(context, stem),
                   path: separated.paths[stem]!,
                   color: _stemColor(stem),
                   selected: _selection.stems.contains(stem),
@@ -960,7 +1017,7 @@ final class _AlignedWaveformPanel extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  '對齊音軌・點擊波形定位',
+                  appText(context, "對齊音軌・點擊波形定位"),
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
@@ -969,7 +1026,7 @@ final class _AlignedWaveformPanel extends StatelessWidget {
                 selected: originalSelected,
                 showCheckmark: false,
                 avatar: const Icon(Icons.library_music_outlined, size: 16),
-                label: const Text('原聲'),
+                label: Text(appText(context, "原聲")),
                 onSelected: selectionEnabled ? (_) => onSelectOriginal() : null,
               ),
               const SizedBox(width: 6),
@@ -982,7 +1039,7 @@ final class _AlignedWaveformPanel extends StatelessWidget {
           ),
         ),
         if (error != null && waveforms.isEmpty)
-          const Expanded(child: Center(child: Text('無法建立音軌波形')))
+          Expanded(child: Center(child: Text(appText(context, "無法建立音軌波形"))))
         else
           Expanded(
             child: ListView.builder(
@@ -1229,14 +1286,17 @@ final class _ImportMusicCard extends StatelessWidget {
         children: [
           const Icon(Icons.queue_music, size: 72),
           const SizedBox(height: 12),
-          Text('選擇練習音樂', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            appText(context, "選擇練習音樂"),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 6),
-          const Text('支援影片與 MP3、WAV、M4A、AAC、FLAC、OGG'),
+          Text(appText(context, "支援影片與 MP3、WAV、M4A、AAC、FLAC、OGG")),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: onPressed,
             icon: const Icon(Icons.file_open),
-            label: const Text('匯入影片或聲音檔'),
+            label: Text(appText(context, "匯入影片或聲音檔")),
           ),
         ],
       ),
@@ -1252,9 +1312,15 @@ final class _SeparationProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = switch (update.stage) {
-      StemSeparationStage.preparingAudio => '正在準備 44.1 kHz 音訊',
-      StemSeparationStage.downloadingModel => '正在下載 AI 六軌分離模型',
-      StemSeparationStage.separating => '正在本機分離六軌',
+      StemSeparationStage.preparingAudio => appText(
+        context,
+        "正在準備 44.1 kHz 音訊",
+      ),
+      StemSeparationStage.downloadingModel => appText(
+        context,
+        "正在下載 AI 六軌分離模型",
+      ),
+      StemSeparationStage.separating => appText(context, "正在本機分離六軌"),
     };
     return Card(
       child: Padding(
@@ -1288,14 +1354,14 @@ final class _MusicRestOverlay extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.self_improvement, size: 48),
-            const Text('休息'),
+            Text(appText(context, "休息")),
             Text(
               '$seconds',
               style: Theme.of(
                 context,
               ).textTheme.displayLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
-            const Text('下一輪即將開始'),
+            Text(appText(context, "下一輪即將開始")),
           ],
         ),
       ),
@@ -1303,13 +1369,13 @@ final class _MusicRestOverlay extends StatelessWidget {
   );
 }
 
-String _stemLabel(MusicStem stem) => switch (stem) {
-  MusicStem.drums => '鼓組',
-  MusicStem.bass => '貝斯',
-  MusicStem.other => '其他樂器',
-  MusicStem.vocals => '人聲',
-  MusicStem.guitar => '吉他',
-  MusicStem.piano => '鋼琴',
+String _stemLabel(BuildContext context, MusicStem stem) => switch (stem) {
+  MusicStem.drums => appText(context, "鼓組"),
+  MusicStem.bass => appText(context, "貝斯"),
+  MusicStem.other => appText(context, "其他樂器"),
+  MusicStem.vocals => appText(context, "人聲"),
+  MusicStem.guitar => appText(context, "吉他"),
+  MusicStem.piano => appText(context, "鋼琴"),
 };
 
 IconData _stemIcon(MusicStem stem) => switch (stem) {

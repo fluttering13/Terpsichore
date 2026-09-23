@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'dart:async';
 
 import 'package:camera/camera.dart';
@@ -28,10 +29,38 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
   bool _recordingTransition = false;
   bool _mirrorFrontCamera = true;
   int _initializationGeneration = 0;
+  Future<void> _cameraOperations = Future<void>.value();
+  bool _foreground = true;
+
+  void _logError(String operation, Object error, StackTrace stack) {
+    debugPrint('[FrontCameraPanel] $operation: $error\n$stack');
+  }
+
+  // Keep native initialization and disposal in order, including initialization
+  // that is still waiting for the first camera/microphone permission response.
+  Future<void> _enqueue(Future<void> Function() operation) {
+    _cameraOperations = _cameraOperations.then((_) => operation()).catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      _logError('camera operation', error, stack);
+    });
+    return _cameraOperations;
+  }
+
+  Future<void> _release(CameraController? controller) async {
+    try {
+      await controller?.dispose();
+    } catch (error, stack) {
+      _logError('dispose', error, stack);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     _loadCameras();
   }
@@ -39,14 +68,17 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
   Future<void> _loadCameras() async {
     try {
       final cameras = await availableCameras();
-      if (cameras.isEmpty) throw StateError('找不到可用的鏡頭');
+      if (!mounted) return;
+      if (cameras.isEmpty) throw StateError(appText(context, "找不到可用的鏡頭"));
       final description = cameras.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
       _cameras = cameras;
-      await _initialize(description);
-    } catch (error) {
+      _description = description;
+      if (_foreground) await _initialize(description);
+    } catch (error, stack) {
+      _logError('load cameras', error, stack);
       if (mounted) {
         setState(() {
           _switching = false;
@@ -56,46 +88,54 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
     }
   }
 
-  Future<void> _initialize(CameraDescription description) async {
+  Future<void> _initialize(CameraDescription description) {
+    if (!mounted || !_foreground) return Future<void>.value();
     final generation = ++_initializationGeneration;
     final previous = _controller;
-    if (mounted) {
-      setState(() {
-        _controller = null;
-        _description = description;
-        _switching = true;
-        _error = null;
-      });
-    }
-    await previous?.dispose();
+    setState(() {
+      _controller = null;
+      _description = description;
+      _switching = true;
+      _error = null;
+    });
+    bool isCurrent() =>
+        mounted && _foreground && generation == _initializationGeneration;
 
-    final next = CameraController(
-      description,
-      ResolutionPreset.high,
-      enableAudio: true,
-    );
-    try {
-      await next.initialize();
-      if (!mounted || generation != _initializationGeneration) {
-        await next.dispose();
-        return;
-      }
-      setState(() {
-        _controller = next;
-        _description = description;
-        _switching = false;
-        _error = null;
-      });
-      if (widget.recording) await _syncRecording();
-    } catch (error) {
-      await next.dispose();
-      if (mounted && generation == _initializationGeneration) {
+    return _enqueue(() async {
+      await _release(previous);
+      if (!isCurrent()) return;
+      final next = CameraController(
+        description,
+        ResolutionPreset.high,
+        enableAudio: true,
+      );
+      try {
+        await next.initialize();
+        if (!isCurrent()) {
+          await _release(next);
+          return;
+        }
         setState(() {
+          _controller = next;
           _switching = false;
-          _error = error;
+          _error = null;
         });
+        if (widget.recording) await _syncRecording();
+      } catch (error, stack) {
+        _logError(
+          'initialize generation=$generation current=${isCurrent()}',
+          error,
+          stack,
+        );
+        await _release(next);
+        if (isCurrent()) {
+          setState(() {
+            _switching = false;
+            _error = error;
+          });
+        }
       }
-    }
+    });
   }
 
   Future<void> _toggleLens() async {
@@ -126,13 +166,22 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint(
+      '[FrontCameraPanel] lifecycle=$state generation=$_initializationGeneration',
+    );
+    final foreground = state == AppLifecycleState.resumed;
+    if (foreground == _foreground) return;
+    _foreground = foreground;
     final description = _description;
-    if (state == AppLifecycleState.inactive) {
+    if (!foreground) {
       _initializationGeneration++;
       final controller = _controller;
-      _controller = null;
-      unawaited(controller?.dispose());
-    } else if (state == AppLifecycleState.resumed && description != null) {
+      setState(() {
+        _controller = null;
+        _error = null;
+      });
+      unawaited(_enqueue(() => _release(controller)));
+    } else if (description != null) {
       unawaited(_initialize(description));
     }
   }
@@ -160,8 +209,11 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
         final file = await controller.stopVideoRecording();
         widget.onRecordingChanged(file);
       }
-    } catch (error) {
-      if (mounted) setState(() => _error = error);
+    } catch (error, stack) {
+      _logError('recording', error, stack);
+      if (mounted && identical(controller, _controller)) {
+        setState(() => _error = error);
+      }
     } finally {
       _recordingTransition = false;
       if (mounted) {
@@ -180,7 +232,9 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _initializationGeneration++;
-    _controller?.dispose();
+    final controller = _controller;
+    _controller = null;
+    unawaited(_enqueue(() => _release(controller)));
     super.dispose();
   }
 
@@ -193,7 +247,10 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('無法開啟鏡頭\n$_error', textAlign: TextAlign.center),
+            child: Text(
+              appText(context, "無法開啟鏡頭\n{0}", [appError(context, _error)]),
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       );
@@ -241,7 +298,9 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
             right: 8,
             child: IconButton.filledTonal(
               onPressed: canSwitch ? _toggleLens : null,
-              tooltip: isFront ? '切換到後鏡頭' : '切換到前鏡頭',
+              tooltip: isFront
+                  ? appText(context, "切換到後鏡頭")
+                  : appText(context, "切換到前鏡頭"),
               icon: const Icon(Icons.cameraswitch_outlined),
             ),
           ),
@@ -254,7 +313,9 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
                   EasterEggService.instance.mirror();
                   setState(() => _mirrorFrontCamera = !_mirrorFrontCamera);
                 },
-                tooltip: _mirrorFrontCamera ? '取消鏡像' : '開啟鏡像',
+                tooltip: _mirrorFrontCamera
+                    ? appText(context, "取消鏡像")
+                    : appText(context, "開啟鏡像"),
                 isSelected: _mirrorFrontCamera,
                 icon: const Icon(Icons.flip),
               ),

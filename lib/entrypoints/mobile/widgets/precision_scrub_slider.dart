@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:flutter/material.dart';
 
 final class PrecisionScrubSlider extends StatefulWidget {
@@ -58,7 +59,9 @@ final class _PrecisionScrubSliderState extends State<PrecisionScrubSlider> {
           constraints: const BoxConstraints.tightFor(width: 32, height: 32),
           padding: const EdgeInsets.all(4),
           iconSize: 19,
-          tooltip: _fine ? '回到完整時間軸' : '精細拖動（放大目前 2 秒）',
+          tooltip: _fine
+              ? appText(context, "回到完整時間軸")
+              : appText(context, "精細拖動（放大目前 2 秒）"),
           onPressed: () => setState(() {
             _fine = !_fine;
             _dragWindowCenter = null;

@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:terpsichore/infrastructure/engagement/easter_egg_service.dart';
 import 'dart:async';
 import 'dart:io';
@@ -26,11 +27,13 @@ import '../../../infrastructure/analysis/device_analysis_gallery.dart';
 import '../../../infrastructure/analysis/local_analysis_audio_picker.dart';
 import '../../../infrastructure/analysis/movenet_analyzer.dart';
 import '../../../infrastructure/media/local_video_picker.dart';
+import '../../../infrastructure/media/same_video.dart';
 import '../../../infrastructure/saved_projects/local_saved_project_store.dart';
 import '../../../infrastructure/saved_projects/project_media_store.dart';
 import '../../../infrastructure/video_playback/latest_video_seeker.dart';
 import '../../../infrastructure/video_playback/local_video_controller.dart';
 import '../../../infrastructure/video_playback/video_playback_ready.dart';
+import 'analysis_export_preview_screen.dart';
 import '../widgets/playback_rate_control.dart';
 import '../widgets/precision_scrub_slider.dart';
 import '../widgets/saved_project_controls.dart';
@@ -105,6 +108,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   bool _endingCommonPlayback = false;
   bool _orientationLocked = false;
   bool _exporting = false;
+  bool _previewing = false;
+
+  bool get _previewBOnly => _previewing && _output == AnalysisOutput.trackBOnly;
   bool _mirrorA = false;
   bool _mirrorB = false;
   _ComparisonLayout _layout = _ComparisonLayout.vertical;
@@ -176,21 +182,32 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, update) => AlertDialog(
-          title: const Text('AI 對齊設定'),
+          title: Text(appText(context, "AI 對齊設定")),
           scrollable: true,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('自動追蹤主要人物，每個採樣影格只推論一次。遮擋或多人交錯時仍可能追錯，請用骨架預覽確認。'),
+              Text(
+                appText(
+                  context,
+                  "自動追蹤主要人物，每個採樣影格只推論一次。遮擋或多人交錯時仍可能追錯，請用骨架預覽確認。",
+                ),
+              ),
               DropdownButtonFormField<int>(
                 key: const ValueKey('pose-sampling-fps'),
+                isExpanded: true,
+                itemHeight: null,
                 initialValue: fps,
-                decoration: const InputDecoration(labelText: '骨架採樣 FPS'),
+                decoration: InputDecoration(
+                  labelText: appText(context, "骨架採樣 FPS"),
+                ),
                 items: _fpsOptions
                     .map(
                       (n) => DropdownMenuItem(
                         value: n,
-                        child: Text(n == 0 ? '自動（6–12 FPS）' : '$n FPS'),
+                        child: Text(
+                          n == 0 ? appText(context, "自動（6–12 FPS）") : '$n FPS',
+                        ),
                       ),
                     )
                     .toList(),
@@ -198,8 +215,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                   if (n != null) update(() => fps = n);
                 },
               ),
-              const Text(
-                '固定 FPS 越低分析越快，但可能漏掉快速動作。只影響 AI 採樣，不改變影片播放或輸出 FPS。修改後需重新分析。',
+              Text(
+                appText(
+                  context,
+                  "固定 FPS 越低分析越快，但可能漏掉快速動作。只影響 AI 採樣，不改變影片播放或輸出 FPS。修改後需重新分析。",
+                ),
               ),
               TextFormField(
                 initialValue: _smoothWindow.toString(),
@@ -207,11 +227,15 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                   decimal: true,
                 ),
                 decoration: InputDecoration(
-                  labelText: '骨架平滑窗口（秒）',
-                  helperText:
-                      '建議從 0.5 秒開始，可輸入任意非負秒數，前後各半。越高越能減少抖動，但可能抹平快速動作；越低越保留動作細節，也較容易抖動。0 秒停用平滑。採樣 FPS 較低時，小窗口可能沒有足夠影格可平滑。',
+                  labelText: appText(context, "骨架平滑窗口（秒）"),
+                  helperText: appText(
+                    context,
+                    "建議從 0.5 秒開始，可輸入任意非負秒數，前後各半。越高越能減少抖動，但可能抹平快速動作；越低越保留動作細節，也較容易抖動。0 秒停用平滑。採樣 FPS 較低時，小窗口可能沒有足夠影格可平滑。",
+                  ),
                   helperMaxLines: 6,
-                  errorText: window == null ? '請輸入大於或等於 0 的有效秒數' : null,
+                  errorText: window == null
+                      ? appText(context, "請輸入大於或等於 0 的有效秒數")
+                      : null,
                 ),
                 onChanged: (text) => update(() {
                   final n = double.tryParse(text.replaceAll(',', '.'));
@@ -221,29 +245,39 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
               DropdownButtonFormField<_BAlignmentMode>(
                 initialValue: mode,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'B 對齊模式（A 始終固定）'),
+                itemHeight: null,
+                decoration: InputDecoration(
+                  labelText: appText(context, "B 對齊模式（A 始終固定）"),
+                ),
                 items: _BAlignmentMode.values
                     .map(
-                      (m) => DropdownMenuItem(value: m, child: Text(m.label)),
+                      (m) => DropdownMenuItem(
+                        value: m,
+                        child: Text(appText(context, m.label)),
+                      ),
                     )
                     .toList(),
                 onChanged: (v) {
                   if (v != null) update(() => mode = v);
                 },
               ),
-              Text('A 的裁切與倍速始終保持不變。${mode.description}允許尾端不同時播完。'),
+              Text(
+                appText(context, "A 的裁切與倍速始終保持不變。{0}允許尾端不同時播完。", [
+                  appText(context, mode.description),
+                ]),
+              ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: Text(appText(context, "取消")),
             ),
             FilledButton(
               onPressed: window == null
                   ? null
                   : () => Navigator.pop(context, (mode, window!, fps)),
-              child: const Text('儲存'),
+              child: Text(appText(context, "儲存")),
             ),
           ],
         ),
@@ -286,20 +320,43 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         });
       }
     } catch (error) {
-      if (mounted) _showProjectMessage('設定儲存失敗：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "設定儲存失敗：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
   Future<void> _togglePose(bool isA) async {
     final track = isA ? _trackA : _trackB;
     if (track == null) return;
+    if (_poseAnalyzer != null) {
+      _showProjectMessage(appText(context, "請等 AI 對齊分析完成後再顯示骨架。"));
+      return;
+    }
+    final sequence = track.useProcessedPose ? track.processedPose : track.pose;
+    if (!track.showPose &&
+        !(sequence?.frames.any(
+              (frame) => PoseOverlayPainter.bones.any(
+                (bone) =>
+                    frame.points.length > bone.$2 &&
+                    frame.points[bone.$1].score >= 0.15 &&
+                    frame.points[bone.$2].score >= 0.15,
+              ),
+            ) ??
+            false)) {
+      _showProjectMessage(
+        track.pose == null
+            ? appText(context, "請按「AI 對齊」一次分析 A、B。")
+            : appText(context, "目前沒有可顯示的骨架，請調整片段後重新分析。"),
+      );
+      return;
+    }
     setState(() => track.showPose = !track.showPose);
     EasterEggService.instance.count('hades', 11);
     if (track.showPose) {
       EasterEggService.instance.engine.trigger('bones', oncePerDay: true);
-    }
-    if (track.showPose && track.pose == null) {
-      _showProjectMessage('請按「AI 對齊」一次分析 A、B。');
     }
   }
 
@@ -322,10 +379,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
             .inMicroseconds /
         1e6;
     final searchEnd = anchorEnd;
-    if (a.trim.duration.inMilliseconds < 1000 ||
-        a.trim.duration.inMilliseconds > 30000 ||
-        searchEnd - searchStart < 1) {
-      _showProjectMessage('請先裁切：A 為 1–30 秒；B 的分析區間至少 1 秒。');
+    if (a.trim.duration <= Duration.zero || searchEnd <= searchStart) {
+      _showProjectMessage(appText(context, "請選擇有效的 A、B 分析區間。"));
       return;
     }
     final analyzer = MoveNetAnalyzer.forApp(
@@ -343,7 +398,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     } catch (error) {
       _poseAnalyzer = null;
       _activePoseAnalyzers.clear();
-      if (mounted) _showProjectMessage('無法暫停播放：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "無法暫停播放：{0}", [appError(context, error)]),
+        );
+      }
       return;
     }
     if (!mounted) {
@@ -352,7 +411,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       return;
     }
     final status = ValueNotifier<String>(
-      '${Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8'} 分析準備中\n追蹤主要人物；多人交錯時請檢查主角',
+      appText(context, "{0} 分析準備中\n追蹤主要人物；多人交錯時請檢查主角", [
+        Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8',
+      ]),
     );
     final dialog = DialogRoute<void>(
       context: context,
@@ -360,7 +421,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       builder: (context) => PopScope(
         canPop: false,
         child: AlertDialog(
-          title: Text('AI 對齊 · ${mode.label}'),
+          title: Text(
+            appText(context, "AI 對齊 · {0}", [appText(context, mode.label)]),
+          ),
           content: ValueListenableBuilder<String>(
             valueListenable: status,
             builder: (_, value, child) => Column(
@@ -376,9 +439,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
             TextButton(
               onPressed: () {
                 _cancelPoseAnalysis();
-                status.value = '正在取消，完成目前工作後釋放模型…';
+                status.value = appText(context, "正在取消，完成目前工作後釋放模型…");
               },
-              child: const Text('取消'),
+              child: Text(appText(context, "取消")),
             ),
           ],
         ),
@@ -413,7 +476,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                 if (!analyzer.cancelled) {
                   progress[index] = p;
                   status.value =
-                      '${Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8'} 並行分析\nA ${(progress[0] * 100).round()}% · B ${(progress[1] * 100).round()}%\n追蹤主要人物';
+                      appText(context, "{0} 並行分析\nA {1}% · B {2}%\n追蹤主要人物", [
+                        Platform.isAndroid ? 'ML Kit Accurate' : 'Thunder INT8',
+                        (progress[0] * 100).round(),
+                        (progress[1] * 100).round(),
+                      ]);
                 }
               },
             );
@@ -437,7 +504,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       // or disposing the shared progress notifier.
       await runParallelPoseJobs(() => analyzeTrack(0), () => analyzeTrack(1));
       {
-        status.value = 'B：${mode.label}…\nA 的裁切與倍速保持固定';
+        if (mounted) {
+          status.value = appText(context, "B：{0}…\nA 的裁切與倍速保持固定", [
+            appText(context, mode.label),
+          ]);
+        }
         result = await compute(
           solveThunderAlignment,
           PoseAlignmentRequest(
@@ -470,42 +541,60 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       return;
     }
     if (failure != null) {
-      _showProjectMessage('骨架分析失敗：$failure');
+      _showProjectMessage(
+        appText(context, "骨架分析失敗：{0}", [appError(context, failure)]),
+      );
       return;
     }
     if (result == null) {
-      _showProjectMessage('已嘗試放寬條件，仍找不到可比較的骨架。請檢查骨架或調整固定影片的裁切區間。A、B 參數未變更。');
+      _showProjectMessage(
+        appText(context, "已嘗試放寬條件，仍找不到可比較的骨架。請檢查骨架或調整固定影片的裁切區間。A、B 參數未變更。"),
+      );
       return;
     }
     final suggestion = result;
     final apply = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('AI 對齊建議'),
+        title: Text(appText(context, "AI 對齊建議")),
         content: Text(
-          'A 維持目前設定\n'
-          'B：${mode.label}\n'
-          'B 起點：${suggestion.bStart.toStringAsFixed(2)} 秒${lockTimeline ? '（保留）' : ''}\n'
-          'B 終點：${anchorEnd.toStringAsFixed(2)} 秒（${lockTimeline ? '保留' : '影片結尾'}）\n'
-          'B 倍速：${suggestion.bRate.toStringAsFixed(3)}x${lockRate ? '（保留）' : ''}\n'
-          '有效骨架：${(suggestion.coverage * 100).round()}%\n'
-          '${suggestion.bestEffort ? '資料或重疊不足，這是盡力估計的結果，可套用預覽後微調。\n' : ''}'
-          '姿勢差異：${suggestion.error.toStringAsFixed(3)}（越低越相似）\n\n'
-          '${suggestion.ambiguous ? '有其他相近答案，可能是重複動作，請特別檢查預覽。\n' : ''}'
-          '人物交錯仍可能辨識錯人，請檢查骨架。尾端不一定同時播完。套用後可共同播放預覽，也可以復原。',
+          appText(
+            context,
+            "A 維持目前設定\nB：{0}\nB 起點：{1} 秒{2}\nB 終點：{3} 秒（{4}）\nB 倍速：{5}x{6}\n有效骨架：{7}%\n{8}姿勢差異：{9}（越低越相似）\n\n{10}人物交錯仍可能辨識錯人，請檢查骨架。尾端不一定同時播完。套用後可共同播放預覽，也可以復原。",
+            [
+              appText(context, mode.label),
+              suggestion.bStart.toStringAsFixed(2),
+              lockTimeline ? appText(context, "（保留）") : '',
+              anchorEnd.toStringAsFixed(2),
+              lockTimeline ? appText(context, "保留") : appText(context, "影片結尾"),
+              suggestion.bRate.toStringAsFixed(3),
+              lockRate ? appText(context, "（保留）") : '',
+              (suggestion.coverage * 100).round(),
+              suggestion.bestEffort
+                  ? appText(context, "資料或重疊不足，這是盡力估計的結果，可套用預覽後微調。\n")
+                  : '',
+              suggestion.error.toStringAsFixed(3),
+              suggestion.ambiguous
+                  ? appText(context, "有其他相近答案，可能是重複動作，請特別檢查預覽。\n")
+                  : '',
+            ],
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('保留原設定'),
+            child: Text(appText(context, "保留原設定")),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('套用並預覽'),
+            child: Text(appText(context, "套用並預覽")),
           ),
         ],
       ),
     );
+    if (apply == false && mounted) {
+      EasterEggService.instance.engine.trigger('oracleRejected');
+    }
     if (apply != true ||
         !mounted ||
         !identical(a, _trackA) ||
@@ -536,7 +625,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       await _seekBoth(0);
       if (mounted) await _toggleCommonPlayback();
     } catch (error) {
-      if (mounted) _showProjectMessage('預覽未完成，可按復原還原 B：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "預覽未完成，可按復原還原 B：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
@@ -560,6 +653,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   }
 
   Duration get _sharedDuration {
+    if (_previewBOnly) return _trackB!.toDomain().effectiveDuration;
     final a = _trackA;
     final b = _trackB;
     if (a != null && b != null) {
@@ -609,59 +703,20 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       _progress = 0;
       _commonPlaying = false;
     });
-    await _checkSameVideo();
     player.addListener(() => _onTrackTick(player, isA));
     old?.seeker.dispose();
     await old?.player.dispose();
+    unawaited(_checkSameVideo());
+    EasterEggService.instance.engine.clearProject('ab');
   }
 
   Future<void> _checkSameVideo() async {
-    final a = _trackA?.source.path;
-    final b = _trackB?.source.path;
+    final a = _trackA;
+    final b = _trackB;
     if (a == null || b == null) return;
-    // Pickers may copy the same source into different cache paths.
-    try {
-      bool same = a == b;
-      if (!same) {
-        final fa = File(a);
-        final fb = File(b);
-        if (await fa.length() == await fb.length()) {
-          final ra = await fa.open();
-          try {
-            final rb = await fb.open();
-            try {
-              same = true;
-              while (true) {
-                final ca = await ra.read(65536);
-                final cb = await rb.read(65536);
-                if (ca.length != cb.length) {
-                  same = false;
-                  break;
-                }
-                for (var i = 0; i < ca.length; i++) {
-                  if (ca[i] != cb[i]) {
-                    same = false;
-                    break;
-                  }
-                }
-                if (!same || ca.isEmpty) break;
-              }
-            } finally {
-              await rb.close();
-            }
-          } finally {
-            await ra.close();
-          }
-        }
-      }
-      if (mounted &&
-          _trackA?.source.path == a &&
-          _trackB?.source.path == b &&
-          same) {
-        EasterEggService.instance.engine.trigger('duel');
-      }
-    } catch (_) {
-      /* Unavailable media should not interrupt playback. */
+    final same = await isSameVideo(a.source.path, b.source.path);
+    if (mounted && identical(_trackA, a) && identical(_trackB, b) && same) {
+      EasterEggService.instance.engine.trigger('duel');
     }
   }
 
@@ -671,9 +726,22 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     if (track == null || !identical(track.player, player)) return;
     // During preparation/recovery, seek and native callbacks can still carry
     // old end positions. They must not end or advance the shared timeline.
-    if (_startingCommonPlayback) return;
+    if (_startingCommonPlayback) {
+      EasterEggService.instance.engine.listening('ab', {});
+      return;
+    }
     final eggs = EasterEggService.instance;
     if (eggs.foreground && eggs.page == 2 && !eggs.covered) {
+      final playing = [_trackA, _trackB].any(
+        (track) =>
+            track != null &&
+            track.player.value.isPlaying &&
+            !track.player.value.isBuffering,
+      );
+      eggs.engine.listening('ab', {
+        if (playing && _audioSource == AnalysisAudioSource.muted) 'silence',
+      });
+      if (playing) eggs.engine.projectPlayback('ab');
       eggs.engine.practice(
         'ab',
         (_trackA?.player.value.isPlaying ?? false) ||
@@ -682,11 +750,19 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     }
 
     if (_commonPlaying) {
-      if (player.value.position >= _commonSourceEnd(track)) {
+      if (_previewBOnly &&
+          isA &&
+          player.value.position >= track.trim.end &&
+          player.value.isPlaying) {
+        unawaited(player.pause());
+      }
+      if ((!_previewBOnly || !isA) &&
+          player.value.position >= _commonSourceEnd(track)) {
         _finishCommonPlayback();
         return;
       }
-      if ((isA || _trackA == null) && _sharedDuration > Duration.zero) {
+      if ((_previewBOnly ? !isA : (isA || _trackA == null)) &&
+          _sharedDuration > Duration.zero) {
         final sourceElapsed = player.value.position - track.trim.start;
         final effectiveMicros = sourceElapsed.inMicroseconds / track.rate.value;
         setState(() {
@@ -731,6 +807,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   }
 
   Duration _sourcePosition(_TrackState track, double progress) {
+    if (_previewBOnly) {
+      return track.trim.clamp(
+        track.trim.start + _sharedDuration * progress * track.rate.value,
+      );
+    }
     final a = _trackA;
     final b = _trackB;
     if (a != null && b != null) {
@@ -817,11 +898,19 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       if (!mounted) return;
       setState(() => _commonPlaying = true);
       await startVideoPlaybackTogether(
-        tracks.map((track) => track.player),
+        tracks
+            .where(
+              (track) =>
+                  !_previewBOnly ||
+                  identical(track, _trackB) ||
+                  (_audioSource == AnalysisAudioSource.trackA &&
+                      _sourcePosition(track, _progress) < track.trim.end),
+            )
+            .map((track) => track.player),
         isActive: () => mounted && _commonPlaying,
       );
       if (!mounted || !_commonPlaying) return;
-      final clockTrack = tracks.first;
+      final clockTrack = _previewBOnly ? _trackB! : tracks.first;
       final currentPosition = await clockTrack.player.position;
       if (!mounted || !_commonPlaying) return;
       if (currentPosition != null && _sharedDuration > Duration.zero) {
@@ -838,7 +927,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       if (mounted) {
         _commonPlaying = false;
         await Future.wait(tracks.map((track) => track.player.pause()));
-        if (mounted) _showProjectMessage('影片尚未準備好，請再試一次。');
+        if (mounted) _showProjectMessage(appText(context, "影片尚未準備好，請再試一次。"));
       }
     } finally {
       if (mounted) setState(() => _startingCommonPlayback = false);
@@ -901,6 +990,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   }
 
   Future<void> _selectAudioSource(AnalysisAudioSource source) async {
+    EasterEggService.instance.engine.listening('ab', {});
     if (source == AnalysisAudioSource.custom) {
       if (_commonPlaying) await _beginCommonSeek(_progress);
       if (_customAudio == null) {
@@ -924,7 +1014,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     try {
       final duration = await _customAudioPlayer.setFilePath(picked.path);
       if (duration == null || duration <= Duration.zero) {
-        throw StateError('無法取得音訊長度');
+        throw StateError('Could not read audio duration');
       }
       final source = picked.copyWith(
         mediaDuration: duration,
@@ -939,7 +1029,11 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       await _syncCustomAudio(_sharedDuration * _progress, play: _commonPlaying);
       await _showCustomAudioEditor();
     } catch (error) {
-      if (mounted) _showProjectMessage('無法開啟自訂音源：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "無法開啟自訂音源：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
@@ -1118,9 +1212,13 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         _savedProjectId = project.id;
         _savedProjectName = project.name;
       });
-      _showProjectMessage('已儲存「${project.name}」');
+      _showProjectMessage(appText(context, "已儲存「{0}」", [project.name]));
     } catch (error) {
-      if (mounted) _showProjectMessage('儲存失敗：$error');
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "儲存失敗：{0}", [appError(context, error)]),
+        );
+      }
     }
   }
 
@@ -1252,16 +1350,21 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       nextB?.player.addListener(() => _onTrackTick(nextB!.player, false));
       await SystemChrome.setPreferredOrientations([]);
       await _seekBoth(_progress);
+      unawaited(_checkSameVideo());
       await _applySelectedAudioSource();
       oldA?.seeker.dispose();
       oldB?.seeker.dispose();
       await oldA?.player.dispose();
       await oldB?.player.dispose();
-      _showProjectMessage('已開啟「${project.name}」');
+      if (!mounted) return;
+      _showProjectMessage(appText(context, "已開啟「{0}」", [project.name]));
+      EasterEggService.instance.projectLoaded('ab', project);
     } catch (error) {
       await nextA?.player.dispose();
       await nextB?.player.dispose();
-      if (mounted) _showProjectMessage('無法開啟專案，請確認 A、B 原始影片仍存在。');
+      if (mounted) {
+        _showProjectMessage(appText(context, "無法開啟專案，請確認 A、B 原始影片仍存在。"));
+      }
     }
   }
 
@@ -1272,14 +1375,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   Future<void> _export() async {
     final a = _trackA;
     final b = _trackB;
-    if (a == null || b == null) return;
+    if (a == null || b == null || _exporting) return;
     setState(() => _exporting = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('正在輸出影片，請保持 Terpsichore 開啟…'),
-        duration: Duration(seconds: 3),
-      ),
-    );
+    final previousProgress = _progress;
     try {
       final project = AnalysisProject(
         trackA: a.toDomain(),
@@ -1288,30 +1386,75 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         audioSource: _audioSource,
         customAudio: _customAudio,
       );
-      final result = await _exporter.export(AnalysisExportRequest(project));
+      _cancelCustomAudioSchedule();
+      setState(() => _commonPlaying = false);
+      await Future.wait([
+        a.player.pause(),
+        b.player.pause(),
+        _customAudioPlayer.pause(),
+      ]);
       if (!mounted) return;
-      final message = switch (result) {
-        AnalysisExported() => '影片已保存在 Terpsichore 本機資料夾。',
-        AnalysisExportUnsupported(:final reason) => reason,
-        AnalysisExportFailed(:final reason) => reason,
+      final folder = _exportFolder;
+      setState(() => _previewing = true);
+      await _seekBoth(0);
+      await _applySelectedAudioSource();
+      if (!mounted) return;
+      final route = MaterialPageRoute<bool>(
+        builder: (_) => AnalysisExportPreviewScreen(
+          project: project,
+          playerA: a.player,
+          playerB: b.player,
+          onToggle: _toggleCommonPlayback,
+          onSeekStart: _beginCommonSeek,
+          onSeek: _seekBoth,
+        ),
+      );
+      final confirmed = await Navigator.of(context).push(route);
+      await _beginCommonSeek(0);
+      await route.completed;
+      if (!mounted) return;
+      setState(() => _previewing = false);
+      await _seekBoth(previousProgress);
+      if (confirmed != true || !mounted) return;
+      _showProjectMessage(appText(context, "正在製作正式畫質影片，請保持 Terpsichore 開啟…"));
+      final result = await _exporter.export(AnalysisExportRequest(project));
+      final path = switch (result) {
+        AnalysisExported(:final path) => path,
+        AnalysisExportUnsupported(:final reason) => throw StateError(reason),
+        AnalysisExportFailed(:final reason) => throw StateError(reason),
       };
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-      if (result case AnalysisExported(:final path)) {
-        EasterEggService.instance.exportCompleted();
-        final galleryResult = await _gallery.save(path, folder: _exportFolder);
-        if (!mounted) return;
-        if (galleryResult case AnalysisGallerySaveFailed(:final reason)) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('影片已輸出，但無法加入媒體瀏覽器：$reason')));
-          return;
-        }
-        final shouldShare = await _askExportDestination(path, _exportFolder);
-        if (shouldShare && mounted) await _shareExport(path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(appText(context, "影片已保存在 Terpsichore 本機資料夾。"))),
+      );
+      EasterEggService.instance.exportCompleted();
+      if (project.output == AnalysisOutput.trackBOnly) {
+        EasterEggService.instance.engine.trigger('solo');
+      }
+      final galleryResult = await _gallery.save(path, folder: folder);
+      if (!mounted) return;
+      if (galleryResult case AnalysisGallerySaveFailed(:final reason)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              appText(context, "影片已輸出，但無法加入媒體瀏覽器：{0}", [
+                appError(context, reason),
+              ]),
+            ),
+          ),
+        );
+        return;
+      }
+      final shouldShare = await _askExportDestination(path, folder);
+      if (shouldShare && mounted) await _shareExport(path);
+    } catch (error) {
+      if (mounted) {
+        _showProjectMessage(
+          appText(context, "無法輸出影片：{0}", [appError(context, error)]),
+        );
       }
     } finally {
+      _previewing = false;
       if (mounted) setState(() => _exporting = false);
     }
   }
@@ -1323,21 +1466,26 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     final fileName = File(path).uri.pathSegments.last;
     final savedLocation = Platform.isAndroid
         ? 'Movies/${folder.path}'
-        : '${folder.path} 相簿';
+        : appText(context, "{0} 相簿", [folder.path]);
     return await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('影片已加入媒體瀏覽器'),
-            content: Text('$fileName\n\n已儲存到 $savedLocation。現在要選擇傳送目的地嗎？'),
+            title: Text(appText(context, "影片已加入媒體瀏覽器")),
+            content: Text(
+              appText(context, "{0}\n\n已儲存到 {1}。現在要選擇傳送目的地嗎？", [
+                fileName,
+                savedLocation,
+              ]),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('留在媒體庫'),
+                child: Text(appText(context, "留在媒體庫")),
               ),
               FilledButton.icon(
                 onPressed: () => Navigator.pop(dialogContext, true),
                 icon: const Icon(Icons.send_outlined),
-                label: const Text('選擇目的地'),
+                label: Text(appText(context, "選擇目的地")),
               ),
             ],
           ),
@@ -1366,7 +1514,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
       ShareParams(
         files: [XFile(path, mimeType: 'video/mp4')],
         title: 'Terpsichore A+B Analysis',
-        text: 'Terpsichore 分析影片',
+        text: appText(context, "Terpsichore 分析影片"),
         sharePositionOrigin: box == null
             ? null
             : box.localToGlobal(Offset.zero) & box.size,
@@ -1395,7 +1543,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         : _layout;
     final tracks = <Widget>[
       _TrackCard(
-        title: 'A・參考影片',
+        title: appText(context, "A・參考影片"),
         track: _trackA,
         onTogglePose: () => _togglePose(true),
         onPick: () => _pick(true),
@@ -1410,7 +1558,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         verticalControls: effectiveLayout == _ComparisonLayout.vertical,
       ),
       _TrackCard(
-        title: 'B・我的影片',
+        title: appText(context, "B・我的影片"),
         track: _trackB,
         onTogglePose: () => _togglePose(false),
         onPick: () => _pick(false),
@@ -1452,23 +1600,30 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                 onExport: _export,
               ),
               const SizedBox(height: 4),
-              SizedBox(
-                height: 36,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 36),
                 child: Row(
                   children: [
-                    TextButton.icon(
-                      onPressed:
-                          _trackA != null &&
-                              _trackB != null &&
-                              !_exporting &&
-                              _settingsReady
-                          ? () => _runPoseAnalysis()
-                          : null,
-                      icon: const Icon(Icons.auto_awesome, size: 18),
-                      label: const Text('AI 對齊（固定 A）'),
+                    Flexible(
+                      flex: 2,
+                      child: TextButton.icon(
+                        onPressed:
+                            _trackA != null &&
+                                _trackB != null &&
+                                !_exporting &&
+                                _settingsReady
+                            ? () => _runPoseAnalysis()
+                            : null,
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: Text(
+                          appText(context, "AI 對齊（固定 A）"),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ),
                     IconButton(
-                      tooltip: 'AI 對齊設定',
+                      tooltip: appText(context, "AI 對齊設定"),
                       onPressed: _settingsReady && _poseAnalyzer == null
                           ? _showAiSettings
                           : null,
@@ -1487,7 +1642,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                       ),
                       TextButton(
                         onPressed: _undoAlignment,
-                        child: const Text('復原'),
+                        child: Text(appText(context, "復原")),
                       ),
                     ],
                   ],
@@ -1561,27 +1716,31 @@ final class _AnalysisToolbar extends StatelessWidget {
   final VoidCallback onExport;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Wrap(
+    alignment: WrapAlignment.spaceBetween,
+    crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       SegmentedButton<_ComparisonLayout>(
         showSelectedIcon: false,
-        segments: const [
+        segments: [
           ButtonSegment(
             value: _ComparisonLayout.vertical,
             icon: Icon(Icons.view_agenda_outlined, size: 18),
-            tooltip: '上下排列（直版）',
+            tooltip: appText(context, "上下排列（直版）"),
           ),
           ButtonSegment(
             value: _ComparisonLayout.horizontal,
             icon: Icon(Icons.view_column_outlined, size: 18),
-            tooltip: '左右排列（橫版）',
+            tooltip: appText(context, "左右排列（橫版）"),
           ),
         ],
         selected: {layout},
         onSelectionChanged: (value) => onLayoutChanged(value.first),
       ),
       IconButton(
-        tooltip: orientationLocked ? '解除畫面鎖定' : '鎖定目前版面方向',
+        tooltip: orientationLocked
+            ? appText(context, "解除畫面鎖定")
+            : appText(context, "鎖定目前版面方向"),
         onPressed: onToggleLock,
         icon: Icon(
           orientationLocked
@@ -1589,15 +1748,14 @@ final class _AnalysisToolbar extends StatelessWidget {
               : Icons.screen_rotation_outlined,
         ),
       ),
-      const Spacer(),
       projectControls,
       IconButton(
-        tooltip: '輸出設定：Movies/${exportFolder.path}',
+        tooltip: appText(context, "輸出設定：Movies/{0}", [exportFolder.path]),
         onPressed: onOpenExportSettings,
         icon: const Icon(Icons.tune),
       ),
       IconButton.filledTonal(
-        tooltip: '輸出並儲存分析影片',
+        tooltip: appText(context, "預覽合成與輸出影片"),
         onPressed: canExport ? onExport : null,
         icon: exporting
             ? const SizedBox.square(
@@ -1652,7 +1810,7 @@ final class _ExportSettingsDialogState extends State<_ExportSettingsDialog> {
     if (folder == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('請輸入有效的資料夾名稱')));
+      ).showSnackBar(SnackBar(content: Text(appText(context, "請輸入有效的資料夾名稱"))));
       return;
     }
     Navigator.pop(context, _ExportSettings(output: _output, folder: folder));
@@ -1661,22 +1819,22 @@ final class _ExportSettingsDialogState extends State<_ExportSettingsDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('輸出設定'),
+    title: Text(appText(context, "輸出設定")),
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<AnalysisOutput>(
           initialValue: _output,
-          decoration: const InputDecoration(labelText: '影片內容'),
-          items: const [
+          decoration: InputDecoration(labelText: appText(context, "影片內容")),
+          items: [
             DropdownMenuItem(
               value: AnalysisOutput.sideBySide,
-              child: Text('輸出 A+B'),
+              child: Text(appText(context, "輸出 A+B")),
             ),
             DropdownMenuItem(
               value: AnalysisOutput.trackBOnly,
-              child: Text('只輸出 B'),
+              child: Text(appText(context, "只輸出 B")),
             ),
           ],
           onChanged: (value) {
@@ -1687,9 +1845,11 @@ final class _ExportSettingsDialogState extends State<_ExportSettingsDialog> {
         TextField(
           controller: _folderController,
           decoration: InputDecoration(
-            labelText: Platform.isAndroid ? '輸出資料夾' : '輸出相簿',
+            labelText: Platform.isAndroid
+                ? appText(context, "輸出資料夾")
+                : appText(context, "輸出相簿"),
             prefixText: Platform.isAndroid ? 'Movies/' : null,
-            helperText: '可輸入子資料夾，例如 Terpsichore/A+B',
+            helperText: appText(context, "可輸入子資料夾，例如 Terpsichore/A+B"),
             border: const OutlineInputBorder(),
           ),
         ),
@@ -1698,9 +1858,9 @@ final class _ExportSettingsDialogState extends State<_ExportSettingsDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(appText(context, "取消")),
       ),
-      FilledButton(onPressed: _submit, child: const Text('套用')),
+      FilledButton(onPressed: _submit, child: Text(appText(context, "套用"))),
     ],
   );
 }
@@ -1731,7 +1891,13 @@ final class _TrackCard extends StatelessWidget {
   final bool verticalControls;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => _buildCard(context, constraints),
+  );
+
+  Widget _buildCard(BuildContext context, BoxConstraints constraints) {
+    final narrow = constraints.maxWidth < 300;
+    final stacked = verticalControls || narrow;
     final value = track;
     final poseFrame =
         (value?.useProcessedPose == true
@@ -1745,7 +1911,7 @@ final class _TrackCard extends StatelessWidget {
               child: FilledButton.tonalIcon(
                 onPressed: onPick,
                 icon: const Icon(Icons.add_to_photos_outlined),
-                label: const Text('選擇影片'),
+                label: Text(appText(context, "選擇影片")),
               ),
             )
           : Center(
@@ -1778,8 +1944,15 @@ final class _TrackCard extends StatelessWidget {
                               ),
                               child: Text(
                                 poseFrame == null
-                                    ? '此時間未分析'
-                                    : '${value.useProcessedPose ? "平滑" : "原始"} · ${poseFrame.points.where((p) => p.score >= .15).length}/17 · 橘色為補點',
+                                    ? appText(context, "此時間未分析")
+                                    : appText(context, "{0} · {1}/17 · 橘色為補點", [
+                                        value.useProcessedPose
+                                            ? appText(context, "平滑")
+                                            : appText(context, "原始"),
+                                        poseFrame.points
+                                            .where((p) => p.score >= .15)
+                                            .length,
+                                      ]),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11,
@@ -1815,7 +1988,7 @@ final class _TrackCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (verticalControls)
+                if (verticalControls && !narrow)
                   Row(
                     children: [
                       _TrackPlayButton(
@@ -1848,28 +2021,46 @@ final class _TrackCard extends StatelessWidget {
                     showSlider: false,
                   ),
                 ],
-                if (verticalControls) trimSlider!,
-                if (verticalControls) ...[
+                if (stacked) trimSlider!,
+                if (stacked) ...[
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('起點  ${formatDuration(value.trim.start)}'),
+                    child: Text(
+                      appText(context, "起點  {0}", [
+                        formatDuration(value.trim.start),
+                      ]),
+                    ),
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('終點  ${formatDuration(value.trim.end)}'),
+                    child: Text(
+                      appText(context, "終點  {0}", [
+                        formatDuration(value.trim.end),
+                      ]),
+                    ),
                   ),
                 ] else
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('起 ${formatDuration(value.trim.start)}'),
-                      Text('終 ${formatDuration(value.trim.end)}'),
+                      Text(
+                        appText(context, "起 {0}", [
+                          formatDuration(value.trim.start),
+                        ]),
+                      ),
+                      Text(
+                        appText(context, "終 {0}", [
+                          formatDuration(value.trim.end),
+                        ]),
+                      ),
                     ],
                   ),
                 Text(
-                  '來源 ${_formatDuration(value.trim.duration)}  ·  '
-                  '${value.rate.value.toStringAsFixed(2)}x 後 '
-                  '${_formatDuration(value.toDomain().effectiveDuration)}',
+                  appText(context, "來源 {0}  ·  {1}x 後 {2}", [
+                    _formatDuration(value.trim.duration),
+                    value.rate.value.toStringAsFixed(2),
+                    _formatDuration(value.toDomain().effectiveDuration),
+                  ]),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelSmall,
@@ -1882,48 +2073,101 @@ final class _TrackCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          SizedBox(
-            height: 38,
-            child: Row(
-              children: [
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
+          if (narrow)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
-                ),
-                if (value != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: value.showPose ? '隱藏骨架' : '顯示骨架',
-                    onPressed: onTogglePose,
-                    isSelected: value.showPose,
-                    icon: const Icon(Icons.accessibility_new),
+                  Wrap(
+                    children: [
+                      if (value != null) ...[
+                        IconButton(
+                          tooltip: value.showPose
+                              ? appText(context, "隱藏骨架")
+                              : appText(context, "顯示骨架"),
+                          onPressed: onTogglePose,
+                          isSelected: value.showPose,
+                          icon: const Icon(Icons.accessibility_new),
+                        ),
+                        IconButton(
+                          tooltip: mirrored
+                              ? appText(context, "取消鏡像")
+                              : appText(context, "開啟鏡像"),
+                          onPressed: onToggleMirror,
+                          isSelected: mirrored,
+                          icon: const Icon(Icons.flip),
+                        ),
+                      ],
+                      IconButton(
+                        tooltip: value == null
+                            ? appText(context, "選擇影片")
+                            : appText(context, "更換影片"),
+                        onPressed: onPick,
+                        icon: const Icon(Icons.video_library_outlined),
+                      ),
+                    ],
                   ),
-                if (value != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: mirrored ? '取消鏡像' : '開啟鏡像',
-                    onPressed: onToggleMirror,
-                    isSelected: mirrored,
-                    icon: const Icon(Icons.flip),
+                ],
+              ),
+            )
+          else
+            SizedBox(
+              height: 38,
+              child: Row(
+                children: [
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                   ),
-                TextButton(
-                  onPressed: onPick,
-                  child: Text(value == null ? '選擇' : '更換'),
-                ),
-              ],
+                  if (value != null)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: value.showPose
+                          ? appText(context, "隱藏骨架")
+                          : appText(context, "顯示骨架"),
+                      onPressed: onTogglePose,
+                      isSelected: value.showPose,
+                      icon: const Icon(Icons.accessibility_new),
+                    ),
+                  if (value != null)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: mirrored
+                          ? appText(context, "取消鏡像")
+                          : appText(context, "開啟鏡像"),
+                      onPressed: onToggleMirror,
+                      isSelected: mirrored,
+                      icon: const Icon(Icons.flip),
+                    ),
+                  TextButton(
+                    onPressed: onPick,
+                    child: Text(
+                      value == null
+                          ? appText(context, "選擇")
+                          : appText(context, "更換"),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
           Expanded(
             child: controls == null
                 ? video
-                : verticalControls
+                : stacked
                 ? Column(
                     children: [
                       Expanded(child: video),
-                      controls,
+                      Flexible(child: SingleChildScrollView(child: controls)),
                     ],
                   )
                 : Column(
@@ -1964,7 +2208,7 @@ final class _TrackPlayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => IconButton.filledTonal(
     visualDensity: VisualDensity.compact,
-    tooltip: '$title 單獨播放',
+    tooltip: appText(context, "{0} 單獨播放", [title]),
     onPressed: onPressed,
     icon: Icon(playing ? Icons.pause : Icons.play_arrow),
   );
@@ -2000,90 +2244,108 @@ final class _CommonTimeline extends StatelessWidget {
   final ValueChanged<AnalysisAudioSource> onAudioSourceChanged;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Column(
     children: [
-      IconButton.filled(
-        tooltip: preparing ? '準備共同播放' : '共同播放',
-        onPressed: enabled ? onToggle : null,
-        icon: preparing
-            ? const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(playing ? Icons.pause : Icons.play_arrow),
-      ),
-      PopupMenuButton<AnalysisAudioSource>(
-        tooltip: switch (audioSource) {
-          AnalysisAudioSource.trackA => '音源：A（只擷取 A 的選取片段）',
-          AnalysisAudioSource.trackB => '音源：B（只擷取 B 的選取片段）',
-          AnalysisAudioSource.custom => '自訂音源：${customAudioLabel ?? '尚未選擇'}',
-          AnalysisAudioSource.muted => '音源：靜音',
-        },
-        initialValue: audioSource,
-        onSelected: onAudioSourceChanged,
-        icon: audioSource == AnalysisAudioSource.muted
-            ? const Icon(Icons.volume_off_outlined)
-            : audioSource == AnalysisAudioSource.custom
-            ? const Icon(Icons.audio_file_outlined)
-            : Badge(
-                label: Text(
-                  audioSource == AnalysisAudioSource.trackA ? 'A' : 'B',
-                ),
-                child: const Icon(Icons.audiotrack),
+      Row(
+        children: [
+          IconButton.filled(
+            tooltip: preparing
+                ? appText(context, "準備共同播放")
+                : appText(context, "共同播放"),
+            onPressed: enabled ? onToggle : null,
+            icon: preparing
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(playing ? Icons.pause : Icons.play_arrow),
+          ),
+          PopupMenuButton<AnalysisAudioSource>(
+            tooltip: switch (audioSource) {
+              AnalysisAudioSource.trackA => appText(
+                context,
+                "音源：A（只擷取 A 的選取片段）",
               ),
-        itemBuilder: (_) => [
-          CheckedPopupMenuItem(
-            value: AnalysisAudioSource.trackA,
-            checked: audioSource == AnalysisAudioSource.trackA,
-            child: const ListTile(
-              title: Text('使用 A 音源'),
-              subtitle: Text('只取 A 目前選取的片段'),
-            ),
+              AnalysisAudioSource.trackB => appText(
+                context,
+                "音源：B（只擷取 B 的選取片段）",
+              ),
+              AnalysisAudioSource.custom => appText(context, "自訂音源：{0}", [
+                customAudioLabel ?? appText(context, "尚未選擇"),
+              ]),
+              AnalysisAudioSource.muted => appText(context, "音源：靜音"),
+            },
+            initialValue: audioSource,
+            onSelected: onAudioSourceChanged,
+            icon: audioSource == AnalysisAudioSource.muted
+                ? const Icon(Icons.volume_off_outlined)
+                : audioSource == AnalysisAudioSource.custom
+                ? const Icon(Icons.audio_file_outlined)
+                : Badge(
+                    label: Text(
+                      audioSource == AnalysisAudioSource.trackA ? 'A' : 'B',
+                    ),
+                    child: const Icon(Icons.audiotrack),
+                  ),
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: AnalysisAudioSource.trackA,
+                checked: audioSource == AnalysisAudioSource.trackA,
+                child: ListTile(
+                  title: Text(appText(context, "使用 A 音源")),
+                  subtitle: Text(appText(context, "只取 A 目前選取的片段")),
+                ),
+              ),
+              CheckedPopupMenuItem(
+                value: AnalysisAudioSource.trackB,
+                checked: audioSource == AnalysisAudioSource.trackB,
+                child: ListTile(
+                  title: Text(appText(context, "使用 B 音源")),
+                  subtitle: Text(appText(context, "只取 B 目前選取的片段")),
+                ),
+              ),
+              CheckedPopupMenuItem(
+                value: AnalysisAudioSource.custom,
+                checked: audioSource == AnalysisAudioSource.custom,
+                child: ListTile(
+                  title: Text(appText(context, "自訂音源")),
+                  subtitle: Text(
+                    customAudioLabel ?? appText(context, "選擇其他音訊檔"),
+                  ),
+                ),
+              ),
+              CheckedPopupMenuItem(
+                value: AnalysisAudioSource.muted,
+                checked: audioSource == AnalysisAudioSource.muted,
+                child: ListTile(
+                  title: Text(appText(context, "不要聲音")),
+                  subtitle: Text(appText(context, "輸出靜音影片")),
+                ),
+              ),
+            ],
           ),
-          CheckedPopupMenuItem(
-            value: AnalysisAudioSource.trackB,
-            checked: audioSource == AnalysisAudioSource.trackB,
-            child: const ListTile(
-              title: Text('使用 B 音源'),
-              subtitle: Text('只取 B 目前選取的片段'),
-            ),
-          ),
-          CheckedPopupMenuItem(
-            value: AnalysisAudioSource.custom,
-            checked: audioSource == AnalysisAudioSource.custom,
-            child: ListTile(
-              title: const Text('自訂音源'),
-              subtitle: Text(customAudioLabel ?? '選擇其他音訊檔'),
-            ),
-          ),
-          CheckedPopupMenuItem(
-            value: AnalysisAudioSource.muted,
-            checked: audioSource == AnalysisAudioSource.muted,
-            child: const ListTile(
-              title: Text('不要聲音'),
-              subtitle: Text('輸出靜音影片'),
+          Expanded(
+            child: PrecisionScrubSlider(
+              position: duration * progress,
+              duration: duration,
+              onChangeStart: enabled
+                  ? (position) => onSeekStart(
+                      position.inMicroseconds / duration.inMicroseconds,
+                    )
+                  : (_) {},
+              onChanged: enabled
+                  ? (position) => onSeek(
+                      position.inMicroseconds / duration.inMicroseconds,
+                    )
+                  : (_) {},
+              onChangeEnd: enabled
+                  ? (position) => onSeekEnd(
+                      position.inMicroseconds / duration.inMicroseconds,
+                    )
+                  : null,
             ),
           ),
         ],
-      ),
-      Expanded(
-        child: PrecisionScrubSlider(
-          position: duration * progress,
-          duration: duration,
-          onChangeStart: enabled
-              ? (position) => onSeekStart(
-                  position.inMicroseconds / duration.inMicroseconds,
-                )
-              : (_) {},
-          onChanged: enabled
-              ? (position) =>
-                    onSeek(position.inMicroseconds / duration.inMicroseconds)
-              : (_) {},
-          onChangeEnd: enabled
-              ? (position) =>
-                    onSeekEnd(position.inMicroseconds / duration.inMicroseconds)
-              : null,
-        ),
       ),
       Text(
         '${_formatDuration(duration * progress)} / ${_formatDuration(duration)}',
@@ -2201,7 +2463,10 @@ final class _CustomAudioTimelineEditorState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('自訂音源時間軸', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                appText(context, "自訂音源時間軸"),
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 4),
               Text(
                 widget.source.label,
@@ -2210,8 +2475,10 @@ final class _CustomAudioTimelineEditorState
               ),
               const SizedBox(height: 20),
               Text(
-                '音源擷取範圍  ${_formatDuration(Duration(milliseconds: _trim.start.round()))}'
-                ' – ${_formatDuration(Duration(milliseconds: _trim.end.round()))}',
+                appText(context, "音源擷取範圍  {0} – {1}", [
+                  _formatDuration(Duration(milliseconds: _trim.start.round())),
+                  _formatDuration(Duration(milliseconds: _trim.end.round())),
+                ]),
               ),
               RangeSlider(
                 values: _trim,
@@ -2231,15 +2498,27 @@ final class _CustomAudioTimelineEditorState
                   FilledButton.tonalIcon(
                     onPressed: _ready ? _togglePreview : null,
                     icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-                    label: Text(_playing ? '暫停試聽' : '試聽選取片段'),
+                    label: Text(
+                      _playing
+                          ? appText(context, "暫停試聽")
+                          : appText(context, "試聽選取片段"),
+                    ),
                   ),
                   const Spacer(),
-                  Text('共 ${_formatDuration(_result.trim.duration)}'),
+                  Text(
+                    appText(context, "共 {0}", [
+                      _formatDuration(_result.trim.duration),
+                    ]),
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
               Text(
-                '放入 A+B 時間軸的位置  ${_formatDuration(Duration(milliseconds: _timelineStartMs.round()))}',
+                appText(context, "放入 A+B 時間軸的位置  {0}", [
+                  _formatDuration(
+                    Duration(milliseconds: _timelineStartMs.round()),
+                  ),
+                ]),
               ),
               Slider(
                 value: _timelineStartMs,
@@ -2255,7 +2534,7 @@ final class _CustomAudioTimelineEditorState
               ),
               const SizedBox(height: 8),
               Text(
-                '套用後可用下方「共同播放」預覽影片與外來音源的同步效果。',
+                appText(context, "套用後可用下方「共同播放」預覽影片與外來音源的同步效果。"),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 20),
@@ -2267,18 +2546,18 @@ final class _CustomAudioTimelineEditorState
                       const _CustomAudioEditResult.replace(),
                     ),
                     icon: const Icon(Icons.audio_file_outlined),
-                    label: const Text('更換音源'),
+                    label: Text(appText(context, "更換音源")),
                   ),
                   const Spacer(),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
+                    child: Text(appText(context, "取消")),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
                     onPressed: () =>
                         Navigator.pop(context, _CustomAudioEditResult(_result)),
-                    child: const Text('套用'),
+                    child: Text(appText(context, "套用")),
                   ),
                 ],
               ),
@@ -2346,8 +2625,11 @@ final class _CustomAudioTimelinePreview extends StatelessWidget {
                       color: Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(5),
                     ),
-                    child: const Center(
-                      child: Text('外來音源', overflow: TextOverflow.clip),
+                    child: Center(
+                      child: Text(
+                        appText(context, "外來音源"),
+                        overflow: TextOverflow.clip,
+                      ),
                     ),
                   ),
                 ),

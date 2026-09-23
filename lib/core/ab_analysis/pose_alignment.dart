@@ -383,7 +383,6 @@ PoseAlignmentResult? solvePoseAlignment(PoseAlignmentRequest request) {
   final duration = (request.aEnd - request.aStart) / request.aRate;
   if (!duration.isFinite ||
       duration <= 0 ||
-      request.aEnd - request.aStart < 1 ||
       request.bEnd <= request.bStart) {
     return null;
   }

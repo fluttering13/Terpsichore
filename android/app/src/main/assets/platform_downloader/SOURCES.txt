@@ -1,0 +1,8 @@
+Threads extractor: https://github.com/tribixbite/yt-dlp-threads
+Commit: c4c44141cb10715f94296a808f5d89a0d24dfe94
+License: Unlicense (THREADS_LICENSE.txt)
+Local changes: reject ambiguous targets; do not invent rendition dimensions.
+Android engine: https://github.com/yausername/youtubedl-android v0.18.1 (GPL-3.0).
+Bundled yt-dlp: https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp
+SHA256: 1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6
+License: Unlicense (YT_DLP_LICENSE.txt), embedded dependencies retain their own licenses.

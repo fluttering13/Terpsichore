@@ -1,3 +1,4 @@
+import '../localization/app_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -31,7 +32,11 @@ final class PlaybackRateControl extends StatelessWidget {
         number > maximum) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('播放速度必須介於 0.10x 和 ${maximum.toStringAsFixed(2)}x'),
+          content: Text(
+            appText(context, "播放速度必須介於 0.10x 和 {0}x", [
+              maximum.toStringAsFixed(2),
+            ]),
+          ),
         ),
       );
       return;
@@ -104,7 +109,7 @@ final class _PlaybackRateDialogState extends State<_PlaybackRateDialog> {
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
     insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-    title: const Text('輸入播放速度'),
+    title: Text(appText(context, "輸入播放速度")),
     content: TextField(
       controller: _controller,
       autofocus: true,
@@ -112,16 +117,18 @@ final class _PlaybackRateDialogState extends State<_PlaybackRateDialog> {
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
       decoration: InputDecoration(
         suffixText: 'x',
-        helperText: '可輸入 0.10 到 ${widget.maximum.toStringAsFixed(2)}',
+        helperText: appText(context, "可輸入 0.10 到 {0}", [
+          widget.maximum.toStringAsFixed(2),
+        ]),
       ),
       onSubmitted: (_) => _submit(),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(appText(context, "取消")),
       ),
-      FilledButton(onPressed: _submit, child: const Text('套用')),
+      FilledButton(onPressed: _submit, child: Text(appText(context, "套用"))),
     ],
   );
 }

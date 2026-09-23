@@ -8,6 +8,7 @@ final class EmotionBackmailService {
 
   static const _channel = MethodChannel('terpsichore/emotion_backmail');
   static final ValueNotifier<int?> onlineStreak = ValueNotifier<int?>(null);
+  static final ValueNotifier<int?> bestOnlineStreak = ValueNotifier<int?>(null);
   static final ValueNotifier<String?> notificationMessage =
       ValueNotifier<String?>(null);
   static final ValueNotifier<NotificationSettings> notificationSettings =
@@ -26,6 +27,7 @@ final class EmotionBackmailService {
         'recordOpen',
       );
       onlineStreak.value = (status?['onlineStreak'] as num?)?.toInt();
+      bestOnlineStreak.value = (status?['bestOnlineStreak'] as num?)?.toInt();
       notificationMessage.value = status?['message'] as String?;
       await loadNotificationSettings();
     } on MissingPluginException {

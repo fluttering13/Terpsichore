@@ -29,6 +29,7 @@ object EmotionBackmailManager {
     private const val KEY_LAST_OPEN_MILLIS = "last_open_millis"
     private const val KEY_LAST_OPEN_DAY = "last_open_day"
     private const val KEY_ONLINE_STREAK = "online_streak"
+    private const val KEY_BEST_ONLINE_STREAK = "best_online_streak"
     private const val KEY_OFFLINE_DAYS = "offline_days"
     private const val KEY_CURRENT_ALIAS = "current_alias"
     private const val KEY_PENDING_ALIAS = "pending_alias"
@@ -194,6 +195,11 @@ object EmotionBackmailManager {
             lastOpenDay == today - 1L -> max(1, previousStreak + 1)
             else -> 1
         }
+        // Preserve the existing streak on upgrade, even if today's open resets it.
+        val bestOnlineStreak = max(
+            prefs.getInt(KEY_BEST_ONLINE_STREAK, 0),
+            max(previousStreak, onlineStreak),
+        )
 
         val storedOfflineDays = prefs.getInt(KEY_OFFLINE_DAYS, 0)
         val elapsedOfflineDays = if (lastOpenMillis > 0L) {
@@ -225,6 +231,7 @@ object EmotionBackmailManager {
             .putLong(KEY_LAST_OPEN_MILLIS, now)
             .putLong(KEY_LAST_OPEN_DAY, today)
             .putInt(KEY_ONLINE_STREAK, onlineStreak)
+            .putInt(KEY_BEST_ONLINE_STREAK, bestOnlineStreak)
             .putInt(KEY_OFFLINE_DAYS, 0)
             .putString(KEY_CURRENT_MESSAGE, currentMessage)
             .putString(
@@ -240,6 +247,7 @@ object EmotionBackmailManager {
         }
         return mapOf(
             "onlineStreak" to onlineStreak,
+            "bestOnlineStreak" to bestOnlineStreak,
             "offlineDaysBeforeReturn" to offlineDaysBeforeReturn,
             "firstOpenToday" to firstOpenToday,
             "message" to currentMessage,

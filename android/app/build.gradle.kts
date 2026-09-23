@@ -43,6 +43,17 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packaging {
+        jniLibs.useLegacyPackaging = true
+        // These .so-named files are runtime archives, not ELF libraries.
+        jniLibs.keepDebugSymbols += setOf("**/libpython.zip.so", "**/libffmpeg.zip.so")
+    }
+
+    androidResources {
+        // Local Python regression checks must not add bytecode to the APK.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:__pycache__:*.pyc"
+    }
 }
 
 kotlin {
@@ -59,6 +70,9 @@ flutter {
 // alias is active, launch MainActivity explicitly instead of resetting icons.
 
 dependencies {
+    implementation("com.antonkarpenko:ffmpeg-kit-min-gpl:2.2.2")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     // Android pose uses Accurate; ONNX remains required by music stem separation.
     implementation("com.google.mlkit:pose-detection-accurate:18.0.0-beta5")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.0")

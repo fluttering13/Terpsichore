@@ -9,6 +9,7 @@ import 'screens/home_screen.dart';
 import 'screens/learning_mode_screen.dart';
 import 'screens/music_practice_screen.dart';
 import 'screens/video_conversion_screen.dart';
+import 'screens/platform_video_download_screen.dart';
 import 'widgets/permission_reminder.dart';
 
 final _eggRoutes = EasterEggRouteObserver();
@@ -23,7 +24,9 @@ final class TerpsichoreApp extends StatelessWidget {
       title: 'Terpsichore',
       scaffoldMessengerKey: EasterEggService.instance.messengerKey,
       navigatorObservers: [_eggRoutes],
-      locale: Locale(language == AppLanguage.english ? 'en' : 'zh', 'TW'),
+      locale: language == AppLanguage.english
+          ? const Locale('en')
+          : const Locale('zh', 'TW'),
       supportedLocales: const [Locale('zh', 'TW'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       debugShowCheckedModeBanner: false,
@@ -87,6 +90,7 @@ final class _HomeShellState extends State<_HomeShell>
       eggs.engine.suspend();
     } else if (state == AppLifecycleState.inactive) {
       eggs.foreground = false;
+      eggs.engine.stopListening();
       eggs.engine.home(false);
       eggs.engine.clearPause();
     } else if (state == AppLifecycleState.resumed) {
@@ -97,6 +101,7 @@ final class _HomeShellState extends State<_HomeShell>
         eggs.engine.home(eggs.page == 0 && !eggs.covered);
       }
       _backgrounded = false;
+      eggs.showPending();
     }
   }
 
@@ -131,6 +136,7 @@ final class _HomeShellState extends State<_HomeShell>
             const AbAnalysisScreen(),
             const MusicPracticeScreen(),
             const VideoConversionScreen(),
+            const PlatformVideoDownloadScreen(),
           ],
         ),
         bottomNavigationBar: SafeArea(
@@ -168,6 +174,11 @@ final class _HomeShellState extends State<_HomeShell>
                         selectedIcon: const Icon(Icons.video_settings),
                         label: english ? 'Converter' : '影片轉檔',
                       ),
+                      NavigationDestination(
+                        icon: const Icon(Icons.download_outlined),
+                        selectedIcon: const Icon(Icons.download),
+                        label: english ? 'Download' : '平台下載',
+                      ),
                     ],
                   )
                 : Material(
@@ -184,6 +195,7 @@ final class _HomeShellState extends State<_HomeShell>
                               1 => Icons.school,
                               2 => Icons.compare,
                               3 => Icons.music_note,
+                              5 => Icons.download,
                               _ => Icons.video_settings,
                             }, size: 18),
                             const SizedBox(width: 6),
