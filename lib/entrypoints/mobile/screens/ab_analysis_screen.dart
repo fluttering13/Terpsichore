@@ -38,6 +38,7 @@ import '../widgets/playback_rate_control.dart';
 import '../widgets/precision_scrub_slider.dart';
 import '../widgets/saved_project_controls.dart';
 import '../widgets/time_text.dart';
+import '../widgets/video_trim_slider.dart';
 import '../widgets/pose_overlay.dart';
 
 final class AbAnalysisScreen extends StatefulWidget {
@@ -1969,15 +1970,9 @@ final class _TrackCard extends StatelessWidget {
     );
     final trimSlider = value == null
         ? null
-        : RangeSlider(
-            values: RangeValues(
-              value.trim.start.inMilliseconds.toDouble(),
-              value.trim.end.inMilliseconds.toDouble(),
-            ),
-            max: value.player.value.duration.inMilliseconds
-                .toDouble()
-                .clamp(1, double.infinity)
-                .toDouble(),
+        : VideoTrimSlider(
+            trim: value.trim,
+            mediaDuration: value.player.value.duration,
             onChanged: onTrimChanged,
             onChangeEnd: (_) => value.seeker.endUserScrub(),
           );
