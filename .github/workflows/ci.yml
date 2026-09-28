@@ -72,7 +72,16 @@ jobs:
         # Use the runner's disposable debug key only for this emulator test.
         # Production builds still require the developer's upload keystore.
         run: |
-          printf 'storeFile=%s/.android/debug.keystore\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' "$HOME" > android/key.properties
+          signing_report="$(cd android && ./gradlew :app:signingReport --console=plain)"
+          debug_keystore="$(printf '%s\n' "$signing_report" | awk '
+            /^Variant: debug$/ { debug_variant = 1; next }
+            debug_variant && /^Store: / { sub(/^Store: /, ""); print; exit }
+          ')"
+          if [[ -z "$debug_keystore" || ! -f "$debug_keystore" ]]; then
+            echo 'Could not locate the debug keystore reported by Gradle.' >&2
+            exit 1
+          fi
+          printf 'storeFile=%s\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' "$debug_keystore" > android/key.properties
           flutter build apk --release --no-pub --target-platform android-x64 --dart-define-from-file=config/support.example.json
 
       - name: Launcher reinstall, update, and streak regression
