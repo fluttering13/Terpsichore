@@ -15,7 +15,7 @@
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.example.terpsichore.ENABLE_DEBUG_LAUNCHER" />
+                <action android:name="com.fluttering13.terpsichore.ENABLE_DEBUG_LAUNCHER" />
             </intent-filter>
         </receiver>
     </application>

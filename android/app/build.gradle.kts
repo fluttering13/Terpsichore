@@ -1,11 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val uploadKeyProperties = Properties()
+val uploadKeyFile = rootProject.file("key.properties")
+if (uploadKeyFile.exists()) {
+    uploadKeyFile.inputStream().use { uploadKeyProperties.load(it) }
+}
+
 android {
-    namespace = "com.example.terpsichore"
+    namespace = "com.fluttering13.terpsichore"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +23,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.terpsichore"
+        applicationId = "com.fluttering13.terpsichore"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -31,6 +38,15 @@ android {
         manifestPlaceholders["emotionLauncherAlias"] = "FlutterLauncherIcon"
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = uploadKeyProperties.getProperty("keyAlias")
+            keyPassword = uploadKeyProperties.getProperty("keyPassword")
+            storeFile = uploadKeyProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+            storePassword = uploadKeyProperties.getProperty("storePassword")
+        }
+    }
+
     buildTypes {
         debug {
             // Keep this component name stable so launcher caches cannot retain
@@ -38,9 +54,7 @@ android {
             manifestPlaceholders["emotionLauncherAlias"] = "FlutterDebugLauncher"
         }
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -53,6 +67,14 @@ android {
     androidResources {
         // Local Python regression checks must not add bytecode to the APK.
         ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:__pycache__:*.pyc"
+    }
+}
+
+tasks.matching { it.name == "validateSigningRelease" }.configureEach {
+    doFirst {
+        check(uploadKeyFile.exists()) {
+            "Release signing requires android/key.properties and an upload keystore. See docs/internal-testing.md."
+        }
     }
 }
 

@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:terpsichore/infrastructure/engagement/emotion_backmail_service.dart';
 import 'notification_settings_screen.dart';
+import 'support_author_screen.dart';
+import '../widgets/privacy_policy_tile.dart';
 
 final class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.onOpenFeature, super.key});
@@ -257,6 +259,24 @@ final class _FeatureMenu extends StatelessWidget {
         const SizedBox(height: 10),
         Card(
           child: ListTile(
+            leading: const Icon(Icons.favorite_outline),
+            title: Text(english ? 'Support the creator' : '支持作者'),
+            subtitle: Text(
+              english
+                  ? 'Help keep Terpsichore dancing'
+                  : '支持 Terpsichore 的開發與維護',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SupportAuthorScreen(),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Card(
+          child: ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: Text(
               english ? 'Notification & language settings' : '通知與語言設定',
@@ -274,6 +294,8 @@ final class _FeatureMenu extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 10),
+        PrivacyPolicyTile(english: english),
       ],
     );
   }

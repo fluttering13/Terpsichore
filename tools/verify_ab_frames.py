@@ -19,7 +19,7 @@ def command(*args):
 
 root = Path(__file__).resolve().parents[1] / 'build' / 'ab-frame-mapping'
 root.mkdir(parents=True, exist_ok=True)
-projects = json.loads(command('adb', 'shell', 'run-as', 'com.example.terpsichore',
+projects = json.loads(command('adb', 'shell', 'run-as', 'com.fluttering13.terpsichore',
                              'cat', 'app_flutter/saved_projects/projects.json'))
 project = next(p for p in projects if p['name'] == 'bug1')['data']
 tracks = [project['trackA'], project['trackB']]
@@ -27,7 +27,7 @@ originals = []
 for label, track in zip('AB', tracks):
     media = root / f'{label}.mp4'
     if not media.exists():
-        media.write_bytes(command('adb', 'exec-out', 'run-as', 'com.example.terpsichore',
+        media.write_bytes(command('adb', 'exec-out', 'run-as', 'com.fluttering13.terpsichore',
                                   'cat', track['source']['path']))
     probe = json.loads(command('ffprobe', '-v', 'error', '-select_streams', 'v:0',
                               '-show_frames', '-show_entries',
@@ -35,7 +35,7 @@ for label, track in zip('AB', tracks):
     originals.append([round(float(f['best_effort_timestamp_time']) * 1e6)
                       for f in probe['frames']])
 
-pid = command('adb', 'shell', 'pidof', 'com.example.terpsichore').decode().strip()
+pid = command('adb', 'shell', 'pidof', 'com.fluttering13.terpsichore').decode().strip()
 log = command('adb', 'logcat', '-d', f'--pid={pid}', '-s',
               'AB_NATIVE:I', 'AB_FRAME:D', 'flutter:I').decode('utf-8')
 (root / 'logcat.txt').write_text(log, encoding='utf-8')

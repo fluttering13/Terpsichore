@@ -58,7 +58,7 @@ cd android
 `PlatformDownloadSmokeTest` 是選擇性網路測試。安裝 debug APK 與 androidTest APK 到測試模擬器後執行（以實際 serial 取代 `emulator-5560`）：
 
 ```powershell
-adb -s emulator-5560 shell am instrument -w -r -e class com.example.terpsichore.PlatformDownloadSmokeTest -e platformDownloadSmoke true -e videoUrl https://www.youtube.com/watch?v=jNQXAC9IVRw -e maxHeight 360 com.example.terpsichore.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5560 shell am instrument -w -r -e class com.fluttering13.terpsichore.PlatformDownloadSmokeTest -e platformDownloadSmoke true -e videoUrl https://www.youtube.com/watch?v=jNQXAC9IVRw -e maxHeight 360 com.fluttering13.terpsichore.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 會經過真正 Android plugin 解析、下載、合併與 MediaStore 寫入，驗證影片及音軌，最後刪除自己建立的測試下載。沒有指定 `platformDownloadSmoke=true` 時跳過，日常離線測試不連外。

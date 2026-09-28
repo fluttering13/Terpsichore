@@ -68,6 +68,13 @@ jobs:
       - name: Enable emulator acceleration
         run: sudo chmod a+rw /dev/kvm
 
+      - name: Build optimized release for startup regression
+        # Use the runner's disposable debug key only for this emulator test.
+        # Production builds still require the developer's upload keystore.
+        run: |
+          printf 'storeFile=%s/.android/debug.keystore\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' "$HOME" > android/key.properties
+          flutter build apk --release --no-pub --target-platform android-x64 --dart-define-from-file=config/support.example.json
+
       - name: Launcher reinstall, update, and streak regression
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -75,6 +82,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
+            python tools/test_release_startup.py --serial emulator-5554 --apk build/app/outputs/flutter-apk/app-release.apk
             (cd android && ./gradlew :app:connectedDebugAndroidTest --console=plain)
             pwsh -File tools/test-launcher-upgrade.ps1 -Serial emulator-5554 -PrepareEmulator
 
@@ -83,5 +91,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: launcher-tests-${{ github.sha }}
-          path: build/app/reports/androidTests/
+          path: |
+            build/app/reports/androidTests/
+            build/release-startup/
           if-no-files-found: warn

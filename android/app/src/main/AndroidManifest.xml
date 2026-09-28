@@ -53,7 +53,7 @@
         </activity-alias>
 
         <meta-data
-            android:name="com.example.terpsichore.EMOTION_LAUNCHER_ALIAS"
+            android:name="com.fluttering13.terpsichore.EMOTION_LAUNCHER_ALIAS"
             android:value="${emotionLauncherAlias}" />
         <activity-alias android:name=".QuestionIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/emotion_question" android:label="Terpsichore" android:targetActivity=".MainActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>

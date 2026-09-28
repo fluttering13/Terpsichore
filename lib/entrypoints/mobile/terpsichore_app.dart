@@ -11,6 +11,7 @@ import 'screens/music_practice_screen.dart';
 import 'screens/video_conversion_screen.dart';
 import 'screens/platform_video_download_screen.dart';
 import 'widgets/permission_reminder.dart';
+import '../../infrastructure/support/support_store.dart';
 
 final _eggRoutes = EasterEggRouteObserver();
 
@@ -18,31 +19,39 @@ final class TerpsichoreApp extends StatelessWidget {
   const TerpsichoreApp({super.key});
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<AppLanguage>(
-    valueListenable: EmotionBackmailService.language,
-    builder: (context, language, _) => MaterialApp(
-      title: 'Terpsichore',
-      scaffoldMessengerKey: EasterEggService.instance.messengerKey,
-      navigatorObservers: [_eggRoutes],
-      locale: language == AppLanguage.english
-          ? const Locale('en')
-          : const Locale('zh', 'TW'),
-      supportedLocales: const [Locale('zh', 'TW'), Locale('en')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff8d4cf6),
-          brightness: Brightness.dark,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: PlaySupportStore.instance,
+    builder: (context, _) => ValueListenableBuilder<AppLanguage>(
+      valueListenable: EmotionBackmailService.language,
+      builder: (context, language, _) => MaterialApp(
+        title: 'Terpsichore',
+        scaffoldMessengerKey: EasterEggService.instance.messengerKey,
+        navigatorObservers: [_eggRoutes],
+        locale: language == AppLanguage.english
+            ? const Locale('en')
+            : const Locale('zh', 'TW'),
+        supportedLocales: const [Locale('zh', 'TW'), Locale('en')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: PlaySupportStore.instance.useTheme
+                ? const Color(0xff80d7b4)
+                : const Color(0xff8d4cf6),
+            secondary: PlaySupportStore.instance.useTheme
+                ? const Color(0xffffd78b)
+                : null,
+            brightness: Brightness.dark,
+          ),
+          scaffoldBackgroundColor: const Color(0xff0f0d14),
+          cardTheme: const CardThemeData(
+            color: Color(0xff1b1822),
+            margin: EdgeInsets.zero,
+          ),
+          useMaterial3: true,
         ),
-        scaffoldBackgroundColor: const Color(0xff0f0d14),
-        cardTheme: const CardThemeData(
-          color: Color(0xff1b1822),
-          margin: EdgeInsets.zero,
-        ),
-        useMaterial3: true,
+        home: const PermissionReminder(child: _HomeShell()),
       ),
-      home: const PermissionReminder(child: _HomeShell()),
     ),
   );
 }
@@ -66,6 +75,7 @@ final class _HomeShellState extends State<_HomeShell>
     EasterEggService.instance.page = 0;
     WidgetsBinding.instance.addObserver(this);
     _initializeEggs();
+    scheduleMicrotask(() => unawaited(PlaySupportStore.instance.initialize()));
   }
 
   Future<void> _initializeEggs() async {
