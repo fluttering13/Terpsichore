@@ -27,7 +27,20 @@ import '../widgets/saved_project_controls.dart';
 import '../widgets/time_text.dart';
 
 final class LearningModeScreen extends StatefulWidget {
-  const LearningModeScreen({super.key});
+  const LearningModeScreen({
+    super.key,
+    this.controlsVisible = true,
+    this.controlsHideAfterSeconds = 5,
+    this.onControlsHideAfterChanged,
+    this.onShowControls,
+    this.onVideoReady,
+  });
+
+  final bool controlsVisible;
+  final int controlsHideAfterSeconds;
+  final ValueChanged<int>? onControlsHideAfterChanged;
+  final VoidCallback? onShowControls;
+  final VoidCallback? onVideoReady;
 
   @override
   State<LearningModeScreen> createState() => _LearningModeScreenState();
@@ -135,6 +148,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
       _restCountdownSeconds = null;
     });
     oldSeeker?.dispose();
+    widget.onVideoReady?.call();
     old?.removeListener(_onPlayerChanged);
     await old?.dispose();
   }
@@ -267,6 +281,7 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
         _savedProjectName = project.name;
       });
       oldSeeker?.dispose();
+      widget.onVideoReady?.call();
       old?.removeListener(_onPlayerChanged);
       await old?.dispose();
       if (!mounted) return;
@@ -497,178 +512,209 @@ final class _LearningModeScreenState extends State<LearningModeScreen> {
                       mirrorA: _mirrorA,
                       showCameraB: _showCameraB,
                       recording: _recording,
+                      controlsVisible: widget.controlsVisible,
                       onRecordingChanged: (file) {
                         if (file != null) _handleRecording(file);
                       },
                     ),
                   ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton.filledTonal(
-                          tooltip: english
-                              ? (_mirrorA ? 'Unmirror A' : 'Mirror A')
-                              : (_mirrorA
-                                    ? appText(context, "取消 A 鏡像")
-                                    : appText(context, "鏡像翻轉 A")),
-                          isSelected: _mirrorA,
-                          onPressed: () {
-                            EasterEggService.instance.mirror();
-                            setState(() => _mirrorA = !_mirrorA);
-                          },
-                          icon: const Icon(Icons.flip),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton.tonalIcon(
-                          onPressed: _recording
-                              ? null
-                              : () {
-                                  EasterEggService.instance.count('camera', 11);
-                                  setState(() => _showCameraB = !_showCameraB);
-                                },
-                          icon: Icon(
-                            _showCameraB
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
+                  if (widget.controlsVisible)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton.filledTonal(
+                            tooltip: english
+                                ? (_mirrorA ? 'Unmirror A' : 'Mirror A')
+                                : (_mirrorA
+                                      ? appText(context, "取消 A 鏡像")
+                                      : appText(context, "鏡像翻轉 A")),
+                            isSelected: _mirrorA,
+                            onPressed: () {
+                              EasterEggService.instance.mirror();
+                              setState(() => _mirrorA = !_mirrorA);
+                            },
+                            icon: const Icon(Icons.flip),
                           ),
-                          label: Text(
-                            _showCameraB
-                                ? appText(context, "關閉 B")
-                                : appText(context, "顯示 B"),
+                          const SizedBox(width: 8),
+                          FilledButton.tonalIcon(
+                            onPressed: _recording
+                                ? null
+                                : () {
+                                    EasterEggService.instance.count(
+                                      'camera',
+                                      11,
+                                    );
+                                    setState(
+                                      () => _showCameraB = !_showCameraB,
+                                    );
+                                  },
+                            icon: Icon(
+                              _showCameraB
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                            ),
+                            label: Text(
+                              _showCameraB
+                                  ? appText(context, "關閉 B")
+                                  : appText(context, "顯示 B"),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: _showCameraB
-                              ? (_recording
-                                    ? appText(context, "停止錄影")
-                                    : appText(context, "開始錄影"))
-                              : appText(context, "請先顯示 B 鏡頭"),
-                          style: IconButton.styleFrom(
-                            backgroundColor: _recording ? Colors.red : null,
+                          const SizedBox(width: 8),
+                          IconButton.filled(
+                            tooltip: _showCameraB
+                                ? (_recording
+                                      ? appText(context, "停止錄影")
+                                      : appText(context, "開始錄影"))
+                                : appText(context, "請先顯示 B 鏡頭"),
+                            style: IconButton.styleFrom(
+                              backgroundColor: _recording ? Colors.red : null,
+                            ),
+                            onPressed: _showCameraB
+                                ? () => setState(() => _recording = !_recording)
+                                : null,
+                            icon: Icon(
+                              _recording
+                                  ? Icons.stop
+                                  : Icons.fiber_manual_record,
+                            ),
                           ),
-                          onPressed: _showCameraB
-                              ? () => setState(() => _recording = !_recording)
-                              : null,
-                          icon: Icon(
-                            _recording ? Icons.stop : Icons.fiber_manual_record,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                   if (_restCountdownSeconds case final seconds?)
                     Positioned.fill(
                       child: _RestCountdownOverlay(seconds: seconds),
                     ),
+                  if (!widget.controlsVisible)
+                    Positioned.fill(
+                      child: Semantics(
+                        button: true,
+                        label: english ? 'Show controls' : '顯示控制選單',
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: widget.onShowControls,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            SizedBox(
-              height: 68,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        IconButton.filled(
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => player.value.isPlaying
-                              ? player.pause()
-                              : player.play(),
-                          icon: Icon(
-                            player.value.isPlaying
-                                ? Icons.pause
-                                : Icons.play_arrow,
+            if (widget.controlsVisible)
+              SizedBox(
+                height: 68,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          IconButton.filled(
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => player.value.isPlaying
+                                ? player.pause()
+                                : player.play(),
+                            icon: Icon(
+                              player.value.isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: PrecisionScrubSlider(
-                            position: _position,
-                            duration: _duration,
-                            onChangeStart: (_) => player.pause(),
-                            onChanged: (position) =>
-                                _seeker?.seekWhileDragging(position),
-                            onChangeEnd: (position) => _seeker?.seek(position),
+                          Expanded(
+                            child: PrecisionScrubSlider(
+                              position: _position,
+                              duration: _duration,
+                              onChangeStart: (_) => player.pause(),
+                              onChanged: (position) =>
+                                  _seeker?.seekWhileDragging(position),
+                              onChangeEnd: (position) =>
+                                  _seeker?.seek(position),
+                            ),
                           ),
-                        ),
-                        TimeText(_position),
-                      ],
+                          TimeText(_position),
+                        ],
+                      ),
                     ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      beat == null
-                          ? appText(context, "八拍未校正")
-                          : appText(context, "第 {0} 個八・第 {1} 拍", [
-                              beat.eight,
-                              beat.beat,
-                            ]),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium,
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        beat == null
+                            ? appText(context, "八拍未校正")
+                            : appText(context, "第 {0} 個八・第 {1} 拍", [
+                                beat.eight,
+                                beat.beat,
+                              ]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            _BottomLearningSettings(
-              expanded: _settingsOpen,
-              onToggle: () => setState(() => _settingsOpen = !_settingsOpen),
-              projectControls: SavedProjectControls(
-                mode: SavedProjectMode.learning,
-                canSave: true,
-                onSave: _saveProject,
-                onLoad: _loadProject,
+            if (widget.controlsVisible)
+              _BottomLearningSettings(
+                expanded: _settingsOpen,
+                onToggle: () => setState(() => _settingsOpen = !_settingsOpen),
+                projectControls: SavedProjectControls(
+                  mode: SavedProjectMode.learning,
+                  canSave: true,
+                  onSave: _saveProject,
+                  onLoad: _loadProject,
+                ),
+                child: _SettingsPanel(
+                  controlsHideAfterSeconds: widget.controlsHideAfterSeconds,
+                  onControlsHideAfterChanged: widget.onControlsHideAfterChanged,
+                  duration: _duration,
+                  loop: _loop,
+                  rate: _rate,
+                  repeat: _repeat,
+                  rest: _rest,
+                  firstEightStart: _firstEightStart,
+                  grid: _grid,
+                  loopStartEight: _loopStartEight,
+                  loopEndEight: _loopEndEight,
+                  recordingOutput: _recordingOutput,
+                  onPickVideo: _pickVideo,
+                  onRateChanged: _setRate,
+                  onLoopChanged: _onLoopChanged,
+                  onLoopChangeStart: (_) => _loopEditStart = _loop,
+                  onLoopChangeEnd: (_) {
+                    unawaited(_seeker?.endUserScrub());
+                    final start = _loopEditStart;
+                    if (start != null &&
+                        (start.start != _loop.start ||
+                            start.end != _loop.end)) {
+                      EasterEggService.instance.count(
+                        'sculpt',
+                        11,
+                        rapid: true,
+                      );
+                    }
+                    _loopEditStart = null;
+                  },
+                  onEightRangeChanged: _selectEightRange,
+                  onRepeatChanged: (value) {
+                    if (value != _repeat) {
+                      EasterEggService.instance.count('repeat', 11);
+                    }
+                    setState(() => _repeat = value);
+                  },
+                  onSeekToLoopStart: () => _player?.seekTo(_loop.start),
+                  onRestChanged: (value) => setState(() => _rest = value),
+                  onMarkEight: _markEightBoundary,
+                  onResetEight: () => setState(() {
+                    _firstEightStart = null;
+                    _grid = null;
+                    _loopStartEight = 1;
+                    _loopEndEight = 1;
+                  }),
+                  onOutputChanged: (value) =>
+                      setState(() => _recordingOutput = value),
+                ),
               ),
-              child: _SettingsPanel(
-                duration: _duration,
-                loop: _loop,
-                rate: _rate,
-                repeat: _repeat,
-                rest: _rest,
-                firstEightStart: _firstEightStart,
-                grid: _grid,
-                loopStartEight: _loopStartEight,
-                loopEndEight: _loopEndEight,
-                recordingOutput: _recordingOutput,
-                onPickVideo: _pickVideo,
-                onRateChanged: _setRate,
-                onLoopChanged: _onLoopChanged,
-                onLoopChangeStart: (_) => _loopEditStart = _loop,
-                onLoopChangeEnd: (_) {
-                  unawaited(_seeker?.endUserScrub());
-                  final start = _loopEditStart;
-                  if (start != null &&
-                      (start.start != _loop.start || start.end != _loop.end)) {
-                    EasterEggService.instance.count('sculpt', 11, rapid: true);
-                  }
-                  _loopEditStart = null;
-                },
-                onEightRangeChanged: _selectEightRange,
-                onRepeatChanged: (value) {
-                  if (value != _repeat) {
-                    EasterEggService.instance.count('repeat', 11);
-                  }
-                  setState(() => _repeat = value);
-                },
-                onSeekToLoopStart: () => _player?.seekTo(_loop.start),
-                onRestChanged: (value) => setState(() => _rest = value),
-                onMarkEight: _markEightBoundary,
-                onResetEight: () => setState(() {
-                  _firstEightStart = null;
-                  _grid = null;
-                  _loopStartEight = 1;
-                  _loopEndEight = 1;
-                }),
-                onOutputChanged: (value) =>
-                    setState(() => _recordingOutput = value),
-              ),
-            ),
           ],
         ),
       ),
@@ -682,6 +728,7 @@ final class _LearningCanvas extends StatelessWidget {
     required this.mirrorA,
     required this.showCameraB,
     required this.recording,
+    required this.controlsVisible,
     required this.onRecordingChanged,
   });
 
@@ -689,6 +736,7 @@ final class _LearningCanvas extends StatelessWidget {
   final bool mirrorA;
   final bool showCameraB;
   final bool recording;
+  final bool controlsVisible;
   final ValueChanged<XFile?> onRecordingChanged;
 
   @override
@@ -705,26 +753,21 @@ final class _LearningCanvas extends StatelessWidget {
       );
       final camera = FrontCameraPanel(
         recording: recording,
+        controlsVisible: controlsVisible,
         onRecordingChanged: onRecordingChanged,
       );
-      final landscape = constraints.maxWidth > constraints.maxHeight;
+      final landscape =
+          MediaQuery.orientationOf(context) == Orientation.landscape;
       return ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: !showCameraB
             ? reference
-            : landscape
-            ? Row(
+            : Flex(
+                direction: landscape ? Axis.horizontal : Axis.vertical,
                 children: [
-                  Expanded(flex: 2, child: reference),
-                  const VerticalDivider(width: 3, thickness: 3),
-                  Expanded(child: camera),
-                ],
-              )
-            : Column(
-                children: [
-                  Expanded(flex: 3, child: reference),
-                  const Divider(height: 3, thickness: 3),
-                  Expanded(flex: 2, child: camera),
+                  Expanded(flex: landscape ? 2 : 3, child: reference),
+                  SizedBox(width: landscape ? 3 : 0, height: landscape ? 0 : 3),
+                  Expanded(flex: landscape ? 1 : 2, child: camera),
                 ],
               ),
       );
@@ -852,6 +895,8 @@ final class _BottomLearningSettings extends StatelessWidget {
 
 final class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({
+    required this.controlsHideAfterSeconds,
+    required this.onControlsHideAfterChanged,
     required this.duration,
     required this.loop,
     required this.rate,
@@ -876,6 +921,8 @@ final class _SettingsPanel extends StatelessWidget {
     required this.onOutputChanged,
   });
 
+  final int controlsHideAfterSeconds;
+  final ValueChanged<int>? onControlsHideAfterChanged;
   final Duration duration;
   final TimeRange loop;
   final PlaybackRate rate;
@@ -922,6 +969,31 @@ final class _SettingsPanel extends StatelessWidget {
             ],
           ),
           PlaybackRateControl(value: rate, onChanged: onRateChanged),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            key: ValueKey(controlsHideAfterSeconds),
+            initialValue: controlsHideAfterSeconds,
+            decoration: InputDecoration(
+              labelText: appText(context, "選單自動隱藏"),
+              helperText: appText(context, "隱藏後，輕觸畫面任意位置即可顯示"),
+              helperMaxLines: 2,
+            ),
+            items: [
+              for (final seconds in [3, 5, 10, 15, 30, 0])
+                DropdownMenuItem(
+                  value: seconds,
+                  child: Text(
+                    seconds == 0
+                        ? appText(context, "永不")
+                        : appText(context, "{0} 秒", [seconds]),
+                  ),
+                ),
+            ],
+            onChanged: (seconds) {
+              if (seconds != null) onControlsHideAfterChanged?.call(seconds);
+            },
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(

@@ -11,6 +11,7 @@ import 'screens/music_practice_screen.dart';
 import 'screens/video_conversion_screen.dart';
 import 'screens/platform_video_download_screen.dart';
 import 'widgets/permission_reminder.dart';
+import 'widgets/learning_controls_controller.dart';
 import '../../infrastructure/support/support_store.dart';
 
 final _eggRoutes = EasterEggRouteObserver();
@@ -68,6 +69,8 @@ final class _HomeShellState extends State<_HomeShell>
   Timer? _eggTimer;
   bool _backgrounded = false;
   bool _eggsReady = false;
+  final _learningControls = LearningControlsController();
+  bool _learningReady = false;
 
   @override
   void initState() {
@@ -92,6 +95,8 @@ final class _HomeShellState extends State<_HomeShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _learningControls.enabled =
+        state == AppLifecycleState.resumed && _index == 1 && _learningReady;
     final eggs = EasterEggService.instance;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -117,6 +122,7 @@ final class _HomeShellState extends State<_HomeShell>
 
   @override
   void dispose() {
+    _learningControls.dispose();
     _eggTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     EasterEggService.instance.engine.suspend();
@@ -130,6 +136,7 @@ final class _HomeShellState extends State<_HomeShell>
     EasterEggService.instance.selectPage(index);
     _index = index;
     _navigationExpanded = false;
+    _learningControls.enabled = _index == 1 && _learningReady;
   });
 
   @override
@@ -137,82 +144,115 @@ final class _HomeShellState extends State<_HomeShell>
     valueListenable: EmotionBackmailService.language,
     builder: (context, language, _) {
       final english = language == AppLanguage.english;
-      return Scaffold(
-        body: IndexedStack(
-          index: _index,
-          children: [
-            HomeScreen(onOpenFeature: _openFeature),
-            const LearningModeScreen(),
-            const AbAnalysisScreen(),
-            const MusicPracticeScreen(),
-            const VideoConversionScreen(),
-            const PlatformVideoDownloadScreen(),
-          ],
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            alignment: Alignment.bottomCenter,
-            child: _navigationExpanded
-                ? NavigationBar(
-                    selectedIndex: _index,
-                    onDestinationSelected: _openFeature,
-                    destinations: [
-                      NavigationDestination(
-                        icon: const Icon(Icons.home_outlined),
-                        selectedIcon: const Icon(Icons.home),
-                        label: english ? 'Home' : '首頁',
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(Icons.school_outlined),
-                        selectedIcon: const Icon(Icons.school),
-                        label: english ? 'Learn' : '學習',
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(Icons.compare_outlined),
-                        selectedIcon: const Icon(Icons.compare),
-                        label: english ? 'A+B Analysis' : 'A+B 分析',
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(Icons.music_note_outlined),
-                        selectedIcon: const Icon(Icons.music_note),
-                        label: english ? 'Music Practice' : '純音樂練習',
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(Icons.video_settings_outlined),
-                        selectedIcon: const Icon(Icons.video_settings),
-                        label: english ? 'Converter' : '影片轉檔',
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(Icons.download_outlined),
-                        selectedIcon: const Icon(Icons.download),
-                        label: english ? 'Download' : '平台下載',
-                      ),
-                    ],
-                  )
-                : Material(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    child: InkWell(
-                      onTap: () => setState(() => _navigationExpanded = true),
-                      child: SizedBox(
-                        height: 28,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(switch (_index) {
-                              0 => Icons.home,
-                              1 => Icons.school,
-                              2 => Icons.compare,
-                              3 => Icons.music_note,
-                              5 => Icons.download,
-                              _ => Icons.video_settings,
-                            }, size: 18),
-                            const SizedBox(width: 6),
-                            const Icon(Icons.keyboard_arrow_up, size: 18),
-                          ],
-                        ),
-                      ),
+      return ListenableBuilder(
+        listenable: _learningControls,
+        builder: (context, _) => Listener(
+          onPointerDown: (event) =>
+              _learningControls.pointerDown(event.pointer),
+          onPointerUp: (event) => _learningControls.pointerUp(event.pointer),
+          onPointerCancel: (event) =>
+              _learningControls.pointerUp(event.pointer),
+          child: Scaffold(
+            body: IndexedStack(
+              index: _index,
+              children: [
+                HomeScreen(onOpenFeature: _openFeature),
+                LearningModeScreen(
+                  controlsVisible: _learningControls.visible,
+                  controlsHideAfterSeconds: _learningControls.hideAfterSeconds,
+                  onControlsHideAfterChanged: (seconds) =>
+                      _learningControls.hideAfterSeconds = seconds,
+                  onShowControls: _learningControls.show,
+                  onVideoReady: () {
+                    _learningReady = true;
+                    _learningControls.enabled = _index == 1;
+                    _learningControls.show();
+                  },
+                ),
+                const AbAnalysisScreen(),
+                const MusicPracticeScreen(),
+                const VideoConversionScreen(),
+                const PlatformVideoDownloadScreen(),
+              ],
+            ),
+            bottomNavigationBar: _index == 1 && !_learningControls.visible
+                ? null
+                : SafeArea(
+                    top: false,
+                    child: AnimatedSize(
+                      duration: const Duration(milliseconds: 220),
+                      alignment: Alignment.bottomCenter,
+                      child: _navigationExpanded
+                          ? NavigationBar(
+                              selectedIndex: _index,
+                              onDestinationSelected: _openFeature,
+                              destinations: [
+                                NavigationDestination(
+                                  icon: const Icon(Icons.home_outlined),
+                                  selectedIcon: const Icon(Icons.home),
+                                  label: english ? 'Home' : '首頁',
+                                ),
+                                NavigationDestination(
+                                  icon: const Icon(Icons.school_outlined),
+                                  selectedIcon: const Icon(Icons.school),
+                                  label: english ? 'Learn' : '學習',
+                                ),
+                                NavigationDestination(
+                                  icon: const Icon(Icons.compare_outlined),
+                                  selectedIcon: const Icon(Icons.compare),
+                                  label: english ? 'A+B Analysis' : 'A+B 分析',
+                                ),
+                                NavigationDestination(
+                                  icon: const Icon(Icons.music_note_outlined),
+                                  selectedIcon: const Icon(Icons.music_note),
+                                  label: english ? 'Music Practice' : '純音樂練習',
+                                ),
+                                NavigationDestination(
+                                  icon: const Icon(
+                                    Icons.video_settings_outlined,
+                                  ),
+                                  selectedIcon: const Icon(
+                                    Icons.video_settings,
+                                  ),
+                                  label: english ? 'Converter' : '影片轉檔',
+                                ),
+                                NavigationDestination(
+                                  icon: const Icon(Icons.download_outlined),
+                                  selectedIcon: const Icon(Icons.download),
+                                  label: english ? 'Download' : '平台下載',
+                                ),
+                              ],
+                            )
+                          : Material(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainer,
+                              child: InkWell(
+                                onTap: () =>
+                                    setState(() => _navigationExpanded = true),
+                                child: SizedBox(
+                                  height: 28,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(switch (_index) {
+                                        0 => Icons.home,
+                                        1 => Icons.school,
+                                        2 => Icons.compare,
+                                        3 => Icons.music_note,
+                                        5 => Icons.download,
+                                        _ => Icons.video_settings,
+                                      }, size: 18),
+                                      const SizedBox(width: 6),
+                                      const Icon(
+                                        Icons.keyboard_arrow_up,
+                                        size: 18,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
                     ),
                   ),
           ),

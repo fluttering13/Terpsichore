@@ -150,6 +150,42 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('hiding controls and rotating preserves the camera preview', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    camera.firstCreate.complete();
+    await mount(tester);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.flip), findsOneWidget);
+    for (final visible in [false, true]) {
+      tester.view.physicalSize = visible
+          ? const Size(390, 844)
+          : const Size(844, 390);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FrontCameraPanel(
+              recording: false,
+              controlsVisible: visible,
+              onRecordingChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('preview 1'), findsOneWidget);
+      expect(find.byIcon(Icons.flip), visible ? findsOneWidget : findsNothing);
+      expect(camera.created, 1);
+      expect(camera.events, ['create 1', 'initialize 1']);
+    }
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets(
     'leaving during permission request disposes result without reopening',
     (tester) async {

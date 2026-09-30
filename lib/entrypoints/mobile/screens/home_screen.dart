@@ -279,12 +279,12 @@ final class _FeatureMenu extends StatelessWidget {
           child: ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: Text(
-              english ? 'Notification & language settings' : '通知與語言設定',
+              english ? 'Notifications & language' : '通知與語言設定',
             ),
             subtitle: Text(
               english
-                  ? 'Time, on/off, Traditional Chinese / English'
-                  : '時間、開關、繁體中文 / English',
+                  ? '繁體中文 / English'
+                  : 'Notifications & language',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(

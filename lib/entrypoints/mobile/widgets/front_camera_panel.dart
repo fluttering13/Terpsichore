@@ -9,11 +9,13 @@ final class FrontCameraPanel extends StatefulWidget {
   const FrontCameraPanel({
     required this.recording,
     required this.onRecordingChanged,
+    this.controlsVisible = true,
     super.key,
   });
 
   final bool recording;
   final ValueChanged<XFile?> onRecordingChanged;
+  final bool controlsVisible;
 
   @override
   State<FrontCameraPanel> createState() => _FrontCameraPanelState();
@@ -293,18 +295,19 @@ final class _FrontCameraPanelState extends State<FrontCameraPanel>
               child: ClipRect(child: preview),
             ),
           ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: IconButton.filledTonal(
-              onPressed: canSwitch ? _toggleLens : null,
-              tooltip: isFront
-                  ? appText(context, "切換到後鏡頭")
-                  : appText(context, "切換到前鏡頭"),
-              icon: const Icon(Icons.cameraswitch_outlined),
+          if (widget.controlsVisible)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton.filledTonal(
+                onPressed: canSwitch ? _toggleLens : null,
+                tooltip: isFront
+                    ? appText(context, "切換到後鏡頭")
+                    : appText(context, "切換到前鏡頭"),
+                icon: const Icon(Icons.cameraswitch_outlined),
+              ),
             ),
-          ),
-          if (isFront)
+          if (isFront && widget.controlsVisible)
             Positioned(
               top: 8,
               right: 56,

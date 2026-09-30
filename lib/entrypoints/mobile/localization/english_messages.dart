@@ -1,5 +1,8 @@
 // Traditional Chinese source templates and their English UI translations.
 const englishMessages = <String, String>{
+  "選單自動隱藏": "Auto-hide controls",
+  "隱藏後，輕觸畫面任意位置即可顯示": "Tap anywhere to show hidden controls",
+  "永不": "Never",
   "時間軸與倍速都搜尋": "Search timing and speed",
   "搜尋 B 整部影片的起點與倍速（0.1–4x），終點設為影片結尾。":
       "Search all of B for a start time and speed (0.1–4x), ending at the end of the video.",
