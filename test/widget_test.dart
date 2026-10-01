@@ -35,7 +35,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('AI 對齊設定'));
+    await tester.tap(find.byTooltip('AI 設定'));
     await tester.pumpAndSettle();
     expect(find.text('B 對齊模式（A 始終固定）'), findsOneWidget);
     expect(find.text('時間軸與倍速都搜尋'), findsOneWidget);
@@ -84,9 +84,55 @@ void main() {
     await tester.tap(find.text('固定時間軸，只搜尋倍速').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('保留 B 目前的裁切起點與終點'), findsOneWidget);
+    expect(find.text('AI 對齊設定'), findsOneWidget);
+    expect(find.text('3D Pose 設定'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('pose3d-model')));
+    expect(find.text('MediaPipe Heavy'), findsNothing);
+    expect(find.text('NLF-L INT8'), findsOneWidget);
+    expect(
+      tester
+          .widget<DropdownButtonFormField<int>>(
+            find.byKey(const ValueKey('pose3d-fps')),
+          )
+          .initialValue,
+      10,
+    );
+    await tester.tap(find.byKey(const ValueKey('pose3d-model')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('NLF-L INT8').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('pose3d-fps')));
+    await tester.tap(find.byKey(const ValueKey('pose3d-fps')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3 FPS').last);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<DropdownButtonFormField<int>>(
+            find.byKey(const ValueKey('pose3d-fps')),
+          )
+          .initialValue,
+      3,
+    );
+    expect(
+      tester
+          .widget<DropdownButtonFormField<int>>(
+            find.byKey(const ValueKey('pose-sampling-fps')),
+          )
+          .initialValue,
+      1,
+    );
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, 'Post-processing：內插其餘影格'),
+          )
+          .value,
+      isTrue,
+    );
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('AI 對齊設定'));
+    await tester.tap(find.byTooltip('AI 設定'));
     await tester.pumpAndSettle();
     expect(find.text('時間軸與倍速都搜尋'), findsOneWidget);
     expect(multiPerson, findsNothing);

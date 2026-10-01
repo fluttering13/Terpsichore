@@ -63,6 +63,9 @@ class MainActivity : FlutterActivity() {
         if (!flutterEngine.plugins.has(AccuratePosePlugin::class.java)) {
             flutterEngine.plugins.add(AccuratePosePlugin())
         }
+        if (!flutterEngine.plugins.has(Pose3dPlugin::class.java)) {
+            flutterEngine.plugins.add(Pose3dPlugin())
+        }
         if (!flutterEngine.plugins.has(PlatformVideoDownloadPlugin::class.java)) {
             flutterEngine.plugins.add(PlatformVideoDownloadPlugin())
         }

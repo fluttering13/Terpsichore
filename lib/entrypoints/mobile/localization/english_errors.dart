@@ -1,5 +1,9 @@
 // Authored processing errors; external diagnostics remain verbatim.
 const englishErrors = <String, String>{
+  '3D Pose 目前支援 Android': '3D Pose currently supports Android only',
+  '無法建立 3D 模型': 'Could not initialize the 3D model',
+  '無法繪製 3D 影格': 'Could not render the 3D frame',
+  '3D 影片輸出失敗': '3D video export failed',
   "無法讀取這個檔案的影片資訊": "Could not read video information from this file",
   "選取的檔案沒有影片軌": "The selected file has no video track",
   "影片轉檔失敗（代碼：{0}）": "Video conversion failed (code: {0})",

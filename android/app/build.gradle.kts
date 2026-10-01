@@ -65,6 +65,7 @@ android {
     }
 
     androidResources {
+        noCompress += listOf("onnx")
         // Local Python regression checks must not add bytecode to the APK.
         ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:__pycache__:*.pyc"
     }

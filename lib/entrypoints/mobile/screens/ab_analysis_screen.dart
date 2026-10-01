@@ -15,6 +15,9 @@ import 'package:video_player/video_player.dart';
 import '../../../core/ab_analysis/analysis_exporter.dart';
 import '../../../core/ab_analysis/analysis_gallery.dart';
 import '../../../core/ab_analysis/analysis_project.dart';
+import '../../../core/ab_analysis/pose_3d.dart';
+import 'pose_3d_screen.dart';
+import '../../../infrastructure/analysis/pose_3d_job.dart';
 import '../../../core/ab_analysis/pose_alignment.dart';
 import '../../../core/ab_analysis/parallel_pose_jobs.dart';
 import '../../../core/ab_analysis/pose_post_processing.dart';
@@ -109,6 +112,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   bool _endingCommonPlayback = false;
   bool _orientationLocked = false;
   bool _exporting = false;
+  bool _openingPose3d = false;
   bool _previewing = false;
 
   bool get _previewBOnly => _previewing && _output == AnalysisOutput.trackBOnly;
@@ -133,6 +137,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   int _samplingFps = 0; // 0 preserves adaptive 6–12 FPS.
   static const _fpsOptions = [0, 1, 2, 3, 4, 5, 6, 8, 12, 15, 24, 30];
   bool _settingsReady = false;
+  Pose3dSettings _pose3dSettings = const Pose3dSettings();
   TimeRange? _beforeAiTrim;
   PlaybackRate? _beforeAiRate;
   _TrackState? _beforeAiTrack;
@@ -159,6 +164,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         );
         final window = data['smoothWindow'];
         final fps = data['samplingFps'];
+        _pose3dSettings = Pose3dSettings.fromJson(data['pose3d']);
         // Ignore the retired multiPersonFiltering preference: tracking is always on.
         if (fps is int && _fpsOptions.contains(fps)) _samplingFps = fps;
         if (window is num && window.isFinite && window >= 0) {
@@ -179,15 +185,26 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     var mode = _bAlignmentMode;
     double? window = _smoothWindow;
     var fps = _samplingFps;
-    final value = await showDialog<(_BAlignmentMode, double, int)>(
+    var model3d = _pose3dSettings.model;
+    var fps3d = _pose3dSettings.fps;
+    var interpolate3d = _pose3dSettings.interpolate;
+    final value = await showDialog<(_BAlignmentMode, double, int, Pose3dSettings)>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, update) => AlertDialog(
-          title: Text(appText(context, "AI 對齊設定")),
+          title: Text(appText(context, "AI 設定")),
           scrollable: true,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  appText(context, 'AI 對齊設定'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
                 appText(
                   context,
@@ -267,6 +284,57 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                   appText(context, mode.description),
                 ]),
               ),
+              const Divider(height: 32),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  appText(context, '3D Pose 設定'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              DropdownButtonFormField<Pose3dModel>(
+                key: const ValueKey('pose3d-model'),
+                isExpanded: true,
+                itemHeight: null,
+                initialValue: model3d,
+                decoration: InputDecoration(
+                  labelText: appText(context, '3D 模型'),
+                ),
+                items: Pose3dModel.values
+                    .map(
+                      (m) => DropdownMenuItem(value: m, child: Text(m.label)),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) update(() => model3d = v);
+                },
+              ),
+              DropdownButtonFormField<int>(
+                key: const ValueKey('pose3d-fps'),
+                isExpanded: true,
+                itemHeight: null,
+                initialValue: fps3d,
+                decoration: InputDecoration(
+                  labelText: appText(context, '3D 推論 FPS'),
+                ),
+                items: Pose3dSettings.fpsOptions
+                    .map(
+                      (n) => DropdownMenuItem(value: n, child: Text('$n FPS')),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) update(() => fps3d = v);
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(appText(context, 'Post-processing：內插其餘影格')),
+                subtitle: Text(
+                  appText(context, '內插播放與輸出影格；短暫漏偵測最多補 2 個採樣點，前後間隔須在 0.6 秒內。'),
+                ),
+                value: interpolate3d,
+                onChanged: (v) => update(() => interpolate3d = v),
+              ),
             ],
           ),
           actions: [
@@ -277,7 +345,16 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
             FilledButton(
               onPressed: window == null
                   ? null
-                  : () => Navigator.pop(context, (mode, window!, fps)),
+                  : () => Navigator.pop(context, (
+                      mode,
+                      window!,
+                      fps,
+                      Pose3dSettings(
+                        model: model3d,
+                        fps: fps3d,
+                        interpolate: interpolate3d,
+                      ),
+                    )),
               child: Text(appText(context, "儲存")),
             ),
           ],
@@ -293,6 +370,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
           'bAlignmentMode': value.$1.name,
           'smoothWindow': value.$2,
           'samplingFps': value.$3,
+          'pose3d': value.$4.toJson(),
         }),
         flush: true,
       );
@@ -300,6 +378,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         setState(() {
           final fpsChanged = _samplingFps != value.$3;
           _samplingFps = value.$3;
+          _pose3dSettings = value.$4;
           _bAlignmentMode = value.$1;
           _smoothWindow = value.$2;
           for (final track in [_trackA, _trackB]) {
@@ -326,6 +405,52 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
           appText(context, "設定儲存失敗：{0}", [appError(context, error)]),
         );
       }
+    }
+  }
+
+  Future<void> _openPose3d() async {
+    final a = _trackA, b = _trackB;
+    if (a == null ||
+        b == null ||
+        _poseAnalyzer != null ||
+        _exporting ||
+        _openingPose3d) {
+      return;
+    }
+    final project = AnalysisProject(
+      trackA: a.toDomain(),
+      trackB: b.toDomain(),
+      output: AnalysisOutput.sideBySide,
+    );
+    if (project.sharedTimelineDuration <= Duration.zero) return;
+    setState(() => _openingPose3d = true);
+    try {
+      _cancelCustomAudioSchedule();
+      await Future.wait([
+        a.player.pause(),
+        b.player.pause(),
+        _customAudioPlayer.pause(),
+      ]);
+      if (!mounted) return;
+      setState(() => _commonPlaying = false);
+      if (_savedProjectId != null &&
+          Pose3dJobs.instance.current?.busy != true) {
+        if (!await _saveProject(showMessage: false)) return;
+      }
+      final job = await Pose3dJobs.instance.getOrStart(
+        project,
+        _pose3dSettings,
+        savedProjectId: _savedProjectId,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => Pose3dScreen(job: job, folder: _exportFolder),
+        ),
+      );
+      await _loadAiSettings();
+    } finally {
+      if (mounted) setState(() => _openingPose3d = false);
     }
   }
 
@@ -1143,7 +1268,7 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
   );
 
   Map<String, Object?> _trackProjectData(
-    _TrackState track,
+    AnalysisTrack track,
     VideoSource savedSource,
   ) => {
     'source': {
@@ -1156,8 +1281,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
     'rate': track.rate.value,
   };
 
-  Future<void> _saveProject() async {
-    if (_trackA == null && _trackB == null) return;
+  Future<bool> _saveProject({bool showMessage = true}) async {
+    if (_trackA == null && _trackB == null) return false;
     var name = _savedProjectName;
     if (_savedProjectId == null) {
       final labels = [
@@ -1165,15 +1290,16 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         _trackB?.source.label,
       ].whereType<String>().join(' + ');
       name = await requestProjectName(context, initialValue: labels);
-      if (name == null || !mounted) return;
+      if (name == null || !mounted) return false;
     }
     try {
-      final savedA = _trackA == null
+      final a = _trackA?.toDomain(), b = _trackB?.toDomain();
+      final savedA = a == null
           ? null
-          : await _projectMediaStore.persistVideo(_trackA!.source);
-      final savedB = _trackB == null
+          : await _projectMediaStore.persistVideo(a.source);
+      final savedB = b == null
           ? null
-          : await _projectMediaStore.persistVideo(_trackB!.source);
+          : await _projectMediaStore.persistVideo(b.source);
       final savedAudio = _customAudio == null
           ? null
           : await _projectMediaStore.persistAudio(_customAudio!);
@@ -1182,12 +1308,8 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         name: name!,
         mode: SavedProjectMode.analysis,
         data: {
-          'trackA': _trackA == null
-              ? null
-              : _trackProjectData(_trackA!, savedA!),
-          'trackB': _trackB == null
-              ? null
-              : _trackProjectData(_trackB!, savedB!),
+          'trackA': a == null ? null : _trackProjectData(a, savedA!),
+          'trackB': b == null ? null : _trackProjectData(b, savedB!),
           'progress': _progress,
           'mirrorA': _mirrorA,
           'mirrorB': _mirrorB,
@@ -1206,20 +1328,50 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                   'timelineStartMs': savedAudio.timelineStart.inMilliseconds,
                 },
           'exportFolder': _exportFolder.path,
+          'pose3dSettings': _pose3dSettings.toJson(),
         },
       );
-      if (!mounted) return;
+      if (a != null && b != null && savedA != null && savedB != null) {
+        AnalysisTrack savedTrack(AnalysisTrack t, VideoSource s) =>
+            AnalysisTrack(
+              source: s,
+              mediaDuration: t.mediaDuration,
+              trim: TimeRange(
+                start: Duration(milliseconds: t.trim.start.inMilliseconds),
+                end: Duration(milliseconds: t.trim.end.inMilliseconds),
+              ),
+              rate: t.rate,
+            );
+        await Pose3dJobs.instance.bindProject(
+          project.id,
+          AnalysisProject(
+            trackA: a,
+            trackB: b,
+            output: AnalysisOutput.sideBySide,
+          ),
+          AnalysisProject(
+            trackA: savedTrack(a, savedA),
+            trackB: savedTrack(b, savedB),
+            output: AnalysisOutput.sideBySide,
+          ),
+        );
+      }
+      if (!mounted) return true;
       setState(() {
         _savedProjectId = project.id;
         _savedProjectName = project.name;
       });
-      _showProjectMessage(appText(context, "已儲存「{0}」", [project.name]));
+      if (showMessage) {
+        _showProjectMessage(appText(context, "已儲存「{0}」", [project.name]));
+      }
+      return true;
     } catch (error) {
       if (mounted) {
         _showProjectMessage(
           appText(context, "儲存失敗：{0}", [appError(context, error)]),
         );
       }
+      return false;
     }
   }
 
@@ -1346,7 +1498,26 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
         _orientationLocked = false;
         _savedProjectId = project.id;
         _savedProjectName = project.name;
+        if (data['pose3dSettings'] != null) {
+          _pose3dSettings = Pose3dSettings.fromJson(data['pose3dSettings']);
+        }
       });
+      if (nextA != null && nextB != null) {
+        final snapshot = AnalysisProject(
+          trackA: nextA.toDomain(),
+          trackB: nextB.toDomain(),
+          output: AnalysisOutput.sideBySide,
+        );
+        try {
+          await Pose3dJobs.instance.bindProject(project.id, snapshot, snapshot);
+        } catch (error) {
+          if (mounted) {
+            _showProjectMessage(
+              appText(context, '儲存失敗：{0}', [appError(context, error)]),
+            );
+          }
+        }
+      }
       nextA?.player.addListener(() => _onTrackTick(nextA!.player, true));
       nextB?.player.addListener(() => _onTrackTick(nextB!.player, false));
       await SystemChrome.setPreferredOrientations([]);
@@ -1594,7 +1765,9 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                 projectControls: SavedProjectControls(
                   mode: SavedProjectMode.analysis,
                   canSave: _trackA != null || _trackB != null,
-                  onSave: _saveProject,
+                  onSave: () async {
+                    await _saveProject();
+                  },
                   onLoad: _loadProject,
                 ),
                 onOpenExportSettings: _showExportSettings,
@@ -1623,8 +1796,29 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                         ),
                       ),
                     ),
+                    ListenableBuilder(
+                      listenable: Pose3dJobs.instance,
+                      builder: (context, _) => TextButton.icon(
+                        key: const ValueKey('ab-pose3d'),
+                        onPressed:
+                            _trackA != null &&
+                                _trackB != null &&
+                                _poseAnalyzer == null &&
+                                !_openingPose3d &&
+                                !_exporting &&
+                                _settingsReady
+                            ? _openPose3d
+                            : null,
+                        icon: const Icon(Icons.view_in_ar, size: 18),
+                        label: Text(
+                          Pose3dJobs.instance.current?.busy == true
+                              ? '3D Pose ${(Pose3dJobs.instance.current!.progress * 100).round()}%'
+                              : '3D Pose',
+                        ),
+                      ),
+                    ),
                     IconButton(
-                      tooltip: appText(context, "AI 對齊設定"),
+                      tooltip: appText(context, "AI 設定"),
                       onPressed: _settingsReady && _poseAnalyzer == null
                           ? _showAiSettings
                           : null,
@@ -1633,14 +1827,6 @@ final class _AbAnalysisScreenState extends State<AbAnalysisScreen> {
                     if (_alignmentLabel != null &&
                         (identical(_beforeAiTrack, _trackA) ||
                             identical(_beforeAiTrack, _trackB))) ...[
-                      Expanded(
-                        child: Text(
-                          _alignmentLabel!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ),
                       TextButton(
                         onPressed: _undoAlignment,
                         child: Text(appText(context, "復原")),

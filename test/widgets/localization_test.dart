@@ -4,6 +4,14 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:terpsichore/core/engagement/easter_egg_catalog.dart';
 import 'package:terpsichore/core/video_conversion/video_conversion.dart';
+import 'package:terpsichore/core/ab_analysis/analysis_gallery.dart';
+import 'package:terpsichore/core/ab_analysis/analysis_project.dart';
+import 'package:terpsichore/core/ab_analysis/pose_3d.dart';
+import 'package:terpsichore/core/shared_video_playback/playback_rate.dart';
+import 'package:terpsichore/core/shared_video_playback/time_range.dart';
+import 'package:terpsichore/core/shared_video_playback/video_source.dart';
+import 'package:terpsichore/infrastructure/analysis/pose_3d_job.dart';
+import 'package:terpsichore/entrypoints/mobile/screens/pose_3d_screen.dart';
 import 'package:terpsichore/entrypoints/mobile/localization/app_text.dart';
 import 'package:terpsichore/entrypoints/mobile/localization/english_messages.dart';
 import 'package:terpsichore/entrypoints/mobile/localization/english_errors.dart';
@@ -85,6 +93,14 @@ void main() {
 
   test('authored processing errors translate without changing diagnostics', () {
     expect(
+      formatAppError(UnsupportedError('3D Pose 目前支援 Android'), english: true),
+      '3D Pose currently supports Android only',
+    );
+    expect(
+      formatAppError(StateError('3D 影片輸出失敗'), english: true),
+      '3D video export failed',
+    );
+    expect(
       formatAppError(StateError('無法建立所選樂器的練習混音'), english: true),
       'Could not build a practice mix from the selected stems',
     );
@@ -100,6 +116,65 @@ void main() {
       formatAppError('Native diagnostic 123', english: true),
       'Native diagnostic 123',
     );
+  });
+
+  testWidgets('3D progress, result and settings follow the app language', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final track = AnalysisTrack(
+      source: const VideoSource(id: 'a', path: '/a.mp4', label: 'A'),
+      mediaDuration: const Duration(seconds: 1),
+      trim: TimeRange(start: Duration.zero, end: const Duration(seconds: 1)),
+      rate: PlaybackRate(1),
+    );
+    final project = AnalysisProject(
+      trackA: track,
+      trackB: track,
+      output: AnalysisOutput.sideBySide,
+    );
+    final job = Pose3dJob(project, const Pose3dSettings())
+      ..status = Pose3dJobStatus.running
+      ..side = 'A+B';
+    await mount(
+      tester,
+      Pose3dScreen(job: job, folder: AnalysisGalleryFolder.defaultFolder),
+    );
+    expect(find.text('Analyzing A+B: 0%'), findsOneWidget);
+    expect(find.text('Estimated time remaining: estimating…'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pose3d-settings')));
+    await tester.pumpAndSettle();
+    expect(find.text('3D inference FPS'), findsOneWidget);
+    expect(
+      find.text('Post-processing: interpolate remaining frames'),
+      findsOneWidget,
+    );
+    EmotionBackmailService.language.value = AppLanguage.traditionalChinese;
+    await tester.pumpAndSettle();
+    expect(find.text('3D 推論 FPS'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.text('預估剩餘時間：估算中…'), findsOneWidget);
+    EmotionBackmailService.language.value = AppLanguage.english;
+    final sequence = Pose3dSequence([
+      Pose3dFrame(0, List.filled(17, const Pose3dPoint(0, 0, 0))),
+    ], 10);
+    job.result = Pose3dComparison(project, job.settings, sequence, sequence);
+    job.status = Pose3dJobStatus.completed;
+    job.updateSettings(job.settings);
+    await tester.pumpAndSettle();
+    expect(find.text('3D skeleton'), findsOneWidget);
+    expect(find.text('Source videos'), findsOneWidget);
+    expect(find.text('Reset view'), findsOneWidget);
+    expect(find.byTooltip('Save 3D video'), findsOneWidget);
+    expect(find.text('Run inference again'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pose3d-remaining')), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    job.dispose();
   });
 
   testWidgets('newly discovered eggs also use English dialogue', (
@@ -198,7 +273,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(find.text('A · Reference video'), findsOneWidget);
-      await tester.tap(find.byTooltip('AI alignment settings'));
+      await tester.tap(find.byTooltip('AI settings'));
       await tester.pumpAndSettle();
       expect(find.text('Search timing and speed'), findsOneWidget);
       expect(find.text('Pose smoothing window (seconds)'), findsOneWidget);

@@ -43,7 +43,7 @@ String formatAppError(Object? error, {required bool english}) {
   if (!english) return original;
   final message = original.replaceFirst(
     RegExp(
-      r'^(Bad state|FormatException|Invalid argument\(s\)|HttpException|Exception): ',
+      r'^(Bad state|FormatException|Invalid argument\(s\)|HttpException|Exception|Unsupported operation): ',
     ),
     '',
   );

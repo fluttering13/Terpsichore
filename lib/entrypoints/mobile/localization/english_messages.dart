@@ -1,5 +1,42 @@
 // Traditional Chinese source templates and their English UI translations.
 const englishMessages = <String, String>{
+  '正面': 'Front',
+  '側面': 'Side',
+  '俯瞰': 'Top',
+  '立體顯示載入失敗，暫用簡化骨架。':
+      '3D shading could not load. Showing a simplified skeleton.',
+  'AI 設定': 'AI settings',
+  '播放': 'Play',
+  '3D Pose 設定': '3D Pose settings',
+  '3D 模型': '3D model',
+  '3D 推論 FPS': '3D inference FPS',
+  'Post-processing：內插其餘影格': 'Post-processing: interpolate remaining frames',
+  '內插播放與輸出影格；短暫漏偵測最多補 2 個採樣點，前後間隔須在 0.6 秒內。':
+      'Interpolate playback and export frames. Fill up to 2 missing samples when the surrounding detections are no more than 0.6 seconds apart.',
+  '儲存 3D 影片': 'Save 3D video',
+  '3D 影片已儲存至相簿': '3D video saved to gallery',
+  '正在分析 {0}：{1}%': 'Analyzing {0}: {1}%',
+  '預估剩餘時間：估算中…': 'Estimated time remaining: estimating…',
+  '預估剩餘時間：約 {0}': 'Estimated time remaining: about {0}',
+  '{0} 分 {1} 秒': '{0} min {1} sec',
+  '{0} 小時 {1} 分': '{0} hr {1} min',
+  '正在整理結果…': 'Finishing results…',
+  '3D 骨架': '3D skeleton',
+  '原影片': 'Source videos',
+  '分析已取消': 'Analysis cancelled',
+  '取消分析': 'Cancel analysis',
+  '正在取消分析…': 'Cancelling analysis…',
+  '重新推論': 'Run inference again',
+  '返回上一頁會繼續分析，可再按 3D Pose 查看進度。':
+      'Analysis continues when you go back. Open 3D Pose again to check progress.',
+  '設定只套用到下一次推論；按重新推論後才會更新結果。':
+      'Settings apply to the next run. Run inference again to update the result.',
+  '已完成：{0} FPS；下次推論：{1} FPS': 'Result: {0} FPS; next run: {1} FPS',
+  '結果保留於本次使用，無法儲存快取。':
+      'The result is available this session, but could not be cached.',
+  '重設視角': 'Reset view',
+  '拖曳旋轉，雙指縮放；儲存使用目前視角':
+      'Drag to rotate, pinch to zoom. Export uses the current view.',
   "選單自動隱藏": "Auto-hide controls",
   "隱藏後，輕觸畫面任意位置即可顯示": "Tap anywhere to show hidden controls",
   "永不": "Never",

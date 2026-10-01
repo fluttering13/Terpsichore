@@ -5,6 +5,8 @@
 .metadata
 .packages
 build/
+.cache/
+android/app/src/androidTest/assets/pose3d/*.mp4
 coverage/
 android/.gradle/
 android/.kotlin/
