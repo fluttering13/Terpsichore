@@ -6,6 +6,53 @@ import 'package:terpsichore/core/shared_video_playback/time_range.dart';
 import 'package:terpsichore/core/shared_video_playback/video_source.dart';
 
 void main() {
+  test(
+    'post-processing repairs whole-body side swaps without editing raw poses',
+    () {
+      const swap = [0, 4, 5, 6, 1, 2, 3, 7, 8, 9, 10, 14, 15, 16, 11, 12, 13];
+      final points = List.generate(
+        17,
+        (i) => Pose3dPoint(
+          [1, 2, 3, 14, 15, 16].contains(i)
+              ? -.4
+              : [4, 5, 6, 11, 12, 13].contains(i)
+              ? .4
+              : 0,
+          i * .04,
+          2,
+        ),
+      );
+      final reversed = [for (final i in swap) points[i]];
+      final sequence = Pose3dSequence([
+        Pose3dFrame(0, points),
+        Pose3dFrame(.2, reversed),
+        Pose3dFrame(.4, reversed),
+        Pose3dFrame(.6, points),
+      ], 5);
+      for (var i = 0; i <= 18; i++) {
+        final pose = sequence.at(i / 30, interpolate: true);
+        for (var j = 0; j < 17; j++) {
+          expect(pose.points![j].x, closeTo(points[j].x, 1e-9));
+          expect(pose.points![j].y, closeTo(points[j].y, 1e-9));
+        }
+      }
+      expect(sequence.at(.2, interpolate: false).points, same(reversed));
+      expect(sequence.frames[1].points, same(reversed));
+      final gap = Pose3dSequence([
+        Pose3dFrame(0, points),
+        Pose3dFrame(.4, reversed),
+      ], 5);
+      expect(gap.at(.4, interpolate: true).points, same(reversed));
+      final translation = [
+        for (final p in points) Pose3dPoint(p.x + 4, p.y, p.z),
+      ];
+      final moving = Pose3dSequence([
+        Pose3dFrame(0, points),
+        Pose3dFrame(.2, translation),
+      ], 5);
+      expect(moving.at(.2, interpolate: true).points, same(translation));
+    },
+  );
   test('ETA uses combined throughput and handles startup and completion', () {
     expect(estimatePose3dRemaining(0, const Duration(seconds: 30)), isNull);
     expect(estimatePose3dRemaining(.25, Duration.zero), isNull);

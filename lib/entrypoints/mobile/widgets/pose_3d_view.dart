@@ -122,6 +122,30 @@ typedef Pose3dCapsule = ({
   double radius,
 });
 
+/// Anatomical forward from the shoulder line and pelvis-to-chest axis.
+/// Recompute in body space so inversion and camera rotation preserve front/back.
+(double, double, double)? pose3dForward(
+  Pose3dFrame frame,
+  Pose3dCamera camera,
+) {
+  final p = frame.points;
+  if (p == null || p.length != 17 || [0, 8, 11, 14].any((i) => !p[i].valid)) {
+    return null;
+  }
+  final rx = p[14].x - p[11].x;
+  final ry = p[14].y - p[11].y;
+  final rz = p[14].z - p[11].z;
+  final ux = p[8].x - p[0].x;
+  final uy = p[8].y - p[0].y;
+  final uz = p[8].z - p[0].z;
+  final x = ry * uz - rz * uy;
+  final y = rz * ux - rx * uz;
+  final z = rx * uy - ry * ux;
+  final n = math.sqrt(x * x + y * y + z * z);
+  if (n < 1e-6) return null;
+  return camera.rotation.rotate(x / n, y / n, z / n);
+}
+
 List<Pose3dCapsule> pose3dCapsules(Pose3dFrame frame, Pose3dCamera camera) {
   final p = frame.points;
   if (p == null || p.length != 17 || !p[0].valid) return [];
@@ -143,6 +167,20 @@ List<Pose3dCapsule> pose3dCapsules(Pose3dFrame frame, Pose3dCamera camera) {
   for (var i = 0; i < 17; i++) {
     if (!p[i].valid) continue;
     result.add((a: point(i), b: point(i), radius: i == 10 ? .095 : .049));
+  }
+  final forward = pose3dForward(frame, camera);
+  if (forward != null && p[10].valid) {
+    final head = point(10);
+    // Small nose is a visual orientation cue, not an inferred facial landmark.
+    result.add((
+      a: head,
+      b: (
+        head.$1 + forward.$1 * .13,
+        head.$2 + forward.$2 * .13,
+        head.$3 + forward.$3 * .13,
+      ),
+      radius: .027,
+    ));
   }
   return result;
 }
@@ -180,7 +218,9 @@ final class Pose3dPainter extends CustomPainter {
         canvas.drawLine(project(i * .5, -1, -2), project(i * .5, -1, 2), grid);
         canvas.drawLine(project(-2, -1, i * .5), project(2, -1, i * .5), grid);
       }
-      final capsules = pose3dCapsules(side == 0 ? a : b, camera);
+      final frame = side == 0 ? a : b;
+      final forward = pose3dForward(frame, camera);
+      final capsules = pose3dCapsules(frame, camera);
       if (renderer != null) {
         final shader = renderer!.shaders[side];
         final uniforms = <double>[
@@ -190,6 +230,9 @@ final class Pose3dPainter extends CustomPainter {
           color.r,
           color.g,
           color.b,
+          forward?.$1 ?? 0,
+          forward?.$2 ?? 0,
+          forward?.$3 ?? 0,
         ];
         for (var i = 0; i < 36; i++) {
           if (i < capsules.length) {
@@ -217,7 +260,17 @@ final class Pose3dPainter extends CustomPainter {
         capsules.sort((a, b) => (b.a.$3 + b.b.$3).compareTo(a.a.$3 + a.b.$3));
         for (final c in capsules) {
           final paint = Paint()
-            ..color = color
+            ..color = forward == null
+                ? color
+                : Color.lerp(
+                    color.withValues(
+                      red: color.r * .45,
+                      green: color.g * .45,
+                      blue: color.b * .45,
+                    ),
+                    Color.lerp(color, Colors.white, .55),
+                    ((1 - forward.$3) / 2).clamp(0.0, 1.0),
+                  )!
             ..strokeWidth = c.radius * 2 * scale
             ..strokeCap = StrokeCap.round;
           final a = center + Offset(c.a.$1 * scale, -c.a.$2 * scale);

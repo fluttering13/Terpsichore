@@ -113,7 +113,54 @@ final class Pose3dSequence {
   final int samplingFps;
   late final List<Pose3dFrame> _repaired = _repairShortGaps();
 
+  List<Pose3dFrame> _consistentSides() {
+    const swapped = [0, 4, 5, 6, 1, 2, 3, 7, 8, 9, 10, 14, 15, 16, 11, 12, 13];
+    const paired = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16];
+    final result = <Pose3dFrame>[];
+    for (final frame in frames) {
+      final previous = result.isEmpty ? null : result.last;
+      final a = previous?.points, b = frame.points;
+      if (a == null ||
+          b == null ||
+          a.length != 17 ||
+          b.length != 17 ||
+          !a[0].valid ||
+          !b[0].valid ||
+          frame.seconds - previous!.seconds > .25 ||
+          frame.seconds <= previous.seconds ||
+          paired.any((i) => !a[i].valid || !b[i].valid)) {
+        result.add(frame);
+        continue;
+      }
+      double distance(int i, int j) {
+        final x = (a[i].x - a[0].x) - (b[j].x - b[0].x);
+        final y = (a[i].y - a[0].y) - (b[j].y - b[0].y);
+        final z = (a[i].z - a[0].z) - (b[j].z - b[0].z);
+        return math.sqrt(x * x + y * y + z * z);
+      }
+
+      var direct = 0.0, flipped = 0.0;
+      for (final i in paired) {
+        direct += distance(i, i);
+        flipped += distance(i, swapped[i]);
+      }
+      // Only a strong whole-body identity discontinuity warrants relabelling.
+      // Root-relative distances ignore camera translation; coordinates stay raw.
+      if (direct / paired.length > .17 && flipped < direct * .65) {
+        result.add(
+          Pose3dFrame(frame.seconds, [
+            for (final i in swapped) b[i],
+          ], interpolated: frame.interpolated),
+        );
+      } else {
+        result.add(frame);
+      }
+    }
+    return result;
+  }
+
   List<Pose3dFrame> _repairShortGaps() {
+    final frames = _consistentSides();
     final result = List<Pose3dFrame>.of(frames);
     var i = 0;
     while (i < frames.length) {

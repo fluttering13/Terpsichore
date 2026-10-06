@@ -7,6 +7,30 @@ import 'package:terpsichore/entrypoints/mobile/widgets/pose_3d_view.dart';
 void main() {
   const size = Size(720, 720);
 
+  test(
+    'front direction follows the body through inversion and camera rotation',
+    () {
+      final points = List.filled(17, const Pose3dPoint(0, 0, 0));
+      points[8] = const Pose3dPoint(0, .5, 0);
+      points[10] = const Pose3dPoint(0, .8, 0);
+      points[11] = const Pose3dPoint(.2, .5, 0);
+      points[14] = const Pose3dPoint(-.2, .5, 0);
+      final frame = Pose3dFrame(0, points);
+      final camera = Pose3dCamera(pitch: 0);
+      expect(pose3dForward(frame, camera)!.$3, closeTo(-1, 1e-9));
+      expect(
+        pose3dForward(frame, Pose3dCamera(yaw: math.pi, pitch: 0))!.$3,
+        closeTo(1, 1e-9),
+      );
+      final inverted = Pose3dFrame(0, [
+        for (final p in points) Pose3dPoint(-p.x, -p.y, p.z),
+      ]);
+      expect(pose3dForward(inverted, camera)!.$3, closeTo(-1, 1e-9));
+      expect(pose3dCapsules(frame, camera).length, 36);
+      expect(pose3dCapsules(frame, camera).last.b.$3, closeTo(-.13, 1e-9));
+    },
+  );
+
   test('capsule geometry rejects missing and invalid roots and joints', () {
     final camera = Pose3dCamera();
     expect(pose3dCapsules(const Pose3dFrame(0, null), camera), isEmpty);

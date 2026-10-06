@@ -6,6 +6,7 @@
 uniform vec2 uCenter;
 uniform float uScale;
 uniform vec3 uColor;
+uniform vec3 uForward;
 uniform vec4 uCapsules[72];
 out vec4 fragColor;
 
@@ -63,6 +64,12 @@ void main() {
   vec3 halfway = normalize(light+vec3(0.0,0.0,-1.0));
   float specular = pow(max(0.0,dot(normal,halfway)),28.0)*0.32;
   float depthFade = clamp(1.0-(closest-7.0)*0.13,0.65,1.0);
-  vec3 color = (uColor*(0.3+0.7*diffuse)+vec3(specular))*depthFade;
+  // Body-relative two-tone material: pale front and saturated dark back.
+  // A zero direction leaves degenerate/unknown orientations neutral.
+  float facing = dot(normal,uForward);
+  vec3 material = length(uForward) < 0.5 ? uColor
+      : mix(uColor*0.45, mix(uColor,vec3(1.0),0.55),
+            smoothstep(-0.15,0.15,facing));
+  vec3 color = (material*(0.3+0.7*diffuse)+vec3(specular))*depthFade;
   fragColor = vec4(color,1.0);
 }

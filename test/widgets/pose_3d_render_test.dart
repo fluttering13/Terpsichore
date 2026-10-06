@@ -11,9 +11,12 @@ void main() {
   ) async {
     await tester.runAsync(() async {
       final renderer = await Pose3dRenderer.load();
-      Future<Uint8List> render(List<Pose3dCapsule> capsules) async {
+      Future<Uint8List> render(
+        List<Pose3dCapsule> capsules, {
+        double facing = 0,
+      }) async {
         final shader = renderer.shaders.first;
-        final uniforms = <double>[64, 64, 40, .3, .8, 1];
+        final uniforms = <double>[64, 64, 40, .3, .8, 1, 0, 0, facing];
         for (var i = 0; i < 36; i++) {
           if (i < capsules.length) {
             final c = capsules[i];
@@ -63,6 +66,11 @@ void main() {
           (a: (0.0, 0.0, -1.0), b: (0.0, 0.0, 1.0), radius: .1),
         ]);
         expect(endOn[(64 * 128 + 64) * 4 + 3], 255);
+        const head = (a: (0.0, 0.0, 0.0), b: (0.0, 0.0, 0.0), radius: .2);
+        final frontColor = await render([head], facing: -1);
+        final backColor = await render([head], facing: 1);
+        final center = (64 * 128 + 64) * 4;
+        expect(frontColor[center], greaterThan(backColor[center] + 40));
         final empty = await render([]);
         expect(empty.every((v) => v == 0), isTrue);
       } finally {
